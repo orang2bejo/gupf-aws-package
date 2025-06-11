@@ -1,0 +1,34 @@
+name: Build GUPF AWS Lambda Package
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Mengunduh kode Anda dari repositori ke server
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Membangun image Docker (persis seperti yang kita lakukan secara lokal)
+      - name: Build the Docker image
+        run: docker build . -t gupf-image
+
+      # 3. Mengekstrak hasil build menjadi file zip
+      - name: Extract Lambda package
+        run: |
+          mkdir build
+          CONTAINER_ID=$(docker create gupf-image)
+          docker cp $CONTAINER_ID:/var/task ./build
+          docker rm $CONTAINER_ID
+          cd build/task && zip -r ../../gupf-deployment-package.zip .
+
+      # 4. Menyediakan file zip tersebut agar bisa Anda unduh
+      - name: Upload Lambda package as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gupf-lambda-package
+          path: gupf-deployment-package.zip
