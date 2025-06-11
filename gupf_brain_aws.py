@@ -1,7 +1,7 @@
-# gupf_brain_aws.py - VERSI 3.0 (Dynamic Market Scanner)
+# gupf_brain_aws.py - VERSI 3.1 (Async Fix)
 
 import os
-import ccxt
+import ccxt.async_support as ccxt 
 import pandas as pd
 import pandas_ta as ta
 import telegram
@@ -15,7 +15,7 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHANNEL_ID = os.environ.get("TELEGRAM_CHANNEL_ID")
 NEWS_API_KEY = os.environ.get("NEWS_API_KEY")
 
-# --- FUNGSI SKORING (Tidak Berubah dari v2.0) ---
+# --- FUNGSI SKORING (Tidak Berubah) ---
 
 def get_sentiment_score(symbol: str) -> float:
     try:
@@ -80,13 +80,13 @@ def get_chaos_score(df: pd.DataFrame) -> float:
     except Exception:
         return 0.0
 
-# --- FUNGSI UTAMA & PEMBANTU (DENGAN UPGRADE) ---
+# --- FUNGSI UTAMA & PEMBANTU ---
 
 async def send_cornix_signal(signal_data):
     bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
     symbol_plain = signal_data['symbol'].replace('/', '')
     message = f"""
-⚡ GUPF v3.0 Market Scanner Signal ⚡
+⚡ GUPF v3.1 Market Scanner Signal ⚡
 Coin: #{symbol_plain}
 Signal: {signal_data['side']}
 
@@ -101,27 +101,27 @@ Source: {signal_data['source']}
     print(f"✅ [{signal_data['symbol']}] Sinyal {signal_data['side']} berhasil dikirim ke Telegram.")
 
 async def get_scan_list():
-    """Mengambil daftar koin yang menarik untuk dianalisis (Gainer, Loser, Volume)."""
     print("Mendapatkan daftar pasar untuk dipindai...")
     exchange = ccxt.binance()
-    markets = await exchange.load_markets()
-    tickers = await exchange.fetch_tickers()
-    await exchange.close()
+    try:
+        await exchange.load_markets()
+        tickers = await exchange.fetch_tickers()
 
-    usdt_tickers = {s: t for s, t in tickers.items() if s.endswith('/USDT') and t.get('quoteVolume', 0) > 5000000}
+        usdt_tickers = {s: t for s, t in tickers.items() if s.endswith('/USDT') and t.get('quoteVolume', 0) > 5000000 and t.get('info', {}).get('status') == 'TRADING'}
 
-    # Urutkan berdasarkan kriteria yang berbeda
-    top_gainers = sorted(usdt_tickers.values(), key=lambda x: x.get('percentage', 0), reverse=True)[:10]
-    top_losers = sorted(usdt_tickers.values(), key=lambda x: x.get('percentage', 0))[:10]
-    top_volume = sorted(usdt_tickers.values(), key=lambda x: x.get('quoteVolume', 0), reverse=True)[:10]
+        top_gainers = sorted(usdt_tickers.values(), key=lambda x: x.get('percentage', 0), reverse=True)[:10]
+        top_losers = sorted(usdt_tickers.values(), key=lambda x: x.get('percentage', 0))[:10]
+        top_volume = sorted(usdt_tickers.values(), key=lambda x: x.get('quoteVolume', 0), reverse=True)[:10]
 
-    scan_list = {}
-    for t in top_gainers: scan_list[t['symbol']] = "Top Gainer"
-    for t in top_losers: scan_list[t['symbol']] = "Top Loser"
-    for t in top_volume: scan_list[t['symbol']] = "Top Volume"
-    
-    print(f"Daftar pemindaian dibuat: {len(scan_list)} aset unik.")
-    return scan_list
+        scan_list = {}
+        for t in top_gainers: scan_list[t['symbol']] = "Top Gainer"
+        for t in top_losers: scan_list[t['symbol']] = "Top Loser"
+        for t in top_volume: scan_list[t['symbol']] = "Top Volume"
+        
+        print(f"Daftar pemindaian dibuat: {len(scan_list)} aset unik.")
+        return scan_list
+    finally:
+        await exchange.close()
 
 async def process_asset_analysis(symbol, source, exchange):
     try:
@@ -129,41 +129,33 @@ async def process_asset_analysis(symbol, source, exchange):
         bars = await exchange.fetch_ohlcv(symbol, timeframe='1h', limit=200)
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
 
-        # Hitung indikator
         df.ta.bbands(length=20, append=True)
         df.ta.rsi(length=14, append=True)
         df.ta.macd(fast=12, slow=26, append=True)
         df.ta.atr(length=14, append=True)
 
-        # Hitung skor
         tech_score = get_technical_score(df)
         chaos_score = get_chaos_score(df)
         sentiment_score = get_sentiment_score(symbol)
 
-        # Kalkulasi Skor Final dengan bobot yang disesuaikan
         final_score = (tech_score * 0.55) + (sentiment_score * 0.30) + (chaos_score * 0.15)
         print(f"[{symbol}] Skor Final: {final_score:.2f} (T:{tech_score:.2f}, S:{sentiment_score:.2f}, C:{chaos_score:.2f})")
         
-        # Logika Keputusan dengan threshold yang disesuaikan
         CONFIDENCE_THRESHOLD = 0.48
         last_close = df.iloc[-1]['close']
         last_atr = df.iloc[-1]['ATRr_14'] / 100
 
+        signal_side = None
         if final_score > CONFIDENCE_THRESHOLD:
-            signal_info = {
-                "symbol": symbol, "side": "BUY", "entry": last_close,
-                "sl": last_close * (1 - last_atr * 2.0),
-                "tp1": last_close * (1 + last_atr * 3.0),
-                "confidence": final_score, "tech_score": tech_score, "sent_score": sentiment_score, "chaos_score": chaos_score,
-                "source": source
-            }
-            await send_cornix_signal(signal_info)
-
+            signal_side = "BUY"
         elif final_score < -CONFIDENCE_THRESHOLD:
+            signal_side = "SELL"
+        
+        if signal_side:
             signal_info = {
-                "symbol": symbol, "side": "SELL", "entry": last_close,
-                "sl": last_close * (1 + last_atr * 2.0),
-                "tp1": last_close * (1 - last_atr * 3.0),
+                "symbol": symbol, "side": signal_side, "entry": last_close,
+                "sl": last_close * (1 - last_atr * 2.0) if signal_side == "BUY" else last_close * (1 + last_atr * 2.0),
+                "tp1": last_close * (1 + last_atr * 3.0) if signal_side == "BUY" else last_close * (1 - last_atr * 3.0),
                 "confidence": final_score, "tech_score": tech_score, "sent_score": sentiment_score, "chaos_score": chaos_score,
                 "source": source
             }
@@ -174,17 +166,23 @@ async def process_asset_analysis(symbol, source, exchange):
     except Exception as e:
         print(f"Error saat memproses {symbol}: {e}")
 
-# --- HANDLER LAMBDA (VERSI 3.0) ---
+# --- HANDLER LAMBDA ---
 async def async_main_logic():
-    print("Memulai GUPF Brain v3.0 - Dynamic Market Scanner...")
+    print("Memulai GUPF Brain v3.1 - Dynamic Market Scanner...")
     scan_list = await get_scan_list()
     
-    exchange = ccxt.binance() # Buat satu koneksi untuk semua analisis
-    tasks = [process_asset_analysis(symbol, source, exchange) for symbol, source in scan_list.items()]
-    await asyncio.gather(*tasks) # Jalankan semua analisis secara bersamaan (lebih cepat!)
-    await exchange.close()
+    if not scan_list:
+        print("Daftar pemindaian kosong, tidak ada yang dilakukan.")
+        return {'statusCode': 200, 'body': json.dumps('Daftar pemindaian kosong.')}
+        
+    exchange = ccxt.binance()
+    try:
+        tasks = [process_asset_analysis(symbol, source, exchange) for symbol, source in scan_list.items()]
+        await asyncio.gather(*tasks)
+    finally:
+        await exchange.close()
 
-    print("GUPF Brain v3.0 selesai menjalankan siklus pemindaian.")
+    print("GUPF Brain v3.1 selesai menjalankan siklus pemindaian.")
     return {'statusCode': 200, 'body': json.dumps('Siklus pemindaian pasar dinamis selesai.')}
 
 def handler(event, context):
