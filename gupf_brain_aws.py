@@ -1,4 +1,4 @@
-# gupf_brain_aws.py - VERSI DIPERBAIKI UNTUK AWS LAMBDA
+# gupf_brain_aws.py - VERSI FINAL DENGAN FIX ASYNC
 
 import ccxt
 import pandas as pd
@@ -7,11 +7,11 @@ import telegram
 import asyncio
 import json
 
-# --- KONFIGURASI (GANTI DENGAN NILAI ANDA) ---
-TELEGRAM_BOT_TOKEN = "7390209460:AAGBMDkIrFqfnmMnsQF5URTSufihShqPrYY" # Token bot pengirim Anda
-TELEGRAM_CHANNEL_ID = "-1002760009072" # ID Channel Pribadi Anda
+# --- KONFIGURASI ---
+TELEGRAM_BOT_TOKEN = "7390209460:AAGBMDkIrFqfnmMnsQF5URTSufihShqPrYY"
+TELEGRAM_CHANNEL_ID = "-1002760009072"
 
-# --- FUNGSI-FUNGSI PEMBANTU (Tidak ada perubahan di sini) ---
+# --- FUNGSI PEMBANTU (Tidak ada perubahan di sini) ---
 def analyze_market(symbol='BTC/USDT', timeframe='1h'):
     try:
         print(f"Menganalisis {symbol} pada timeframe {timeframe}...")
@@ -59,19 +59,10 @@ Stop-Loss:
     await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message)
     print("Sinyal berhasil dikirim ke Telegram untuk Cornix.")
 
-
-# ===================================================================
-# --- INI ADALAH FUNGSI HANDLER YANG DICARI OLEH AWS LAMBDA ---
-# ===================================================================
-async def handler(event, context):
-    """
-    Ini adalah fungsi utama (entry point) yang akan dipanggil oleh Lambda.
-    """
+# --- FUNGSI ASLI KITA (SEKARANG KITA GANTI NAMANYA) ---
+async def async_main_logic():
     print("Memulai GUPF Brain...")
-    
-    # Daftar aset yang ingin dipantau
     assets_to_monitor = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
-    
     signals_found = 0
     for asset in assets_to_monitor:
         signal = analyze_market(symbol=asset, timeframe='1h')
@@ -80,14 +71,20 @@ async def handler(event, context):
             signals_found += 1
         else:
             print(f"Tidak ada sinyal valid untuk {asset} saat ini.")
-            
     print("GUPF Brain selesai menjalankan siklus.")
-    
-    # Lambda function harus mengembalikan respons JSON
     return {
         'statusCode': 200,
         'body': json.dumps(f'Proses selesai. Ditemukan {signals_found} sinyal.')
     }
 
-# Kita bisa menghapus `if __name__ == "__main__"` karena Lambda tidak menggunakannya.
-# Lambda akan langsung memanggil fungsi `handler`.
+
+# ===================================================================
+# --- INI ADALAH "PEMBUNGKUS" HANDLER YANG BARU UNTUK LAMBDA ---
+# ===================================================================
+def handler(event, context):
+    """
+    Ini adalah fungsi SINKRON yang akan dipanggil Lambda.
+    Tugasnya adalah menjalankan fungsi ASINKRON kita.
+    """
+    # asyncio.run() akan menjalankan fungsi async_main_logic dan menunggu sampai selesai.
+    return asyncio.run(async_main_logic())
