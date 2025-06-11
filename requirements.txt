@@ -1,6 +1,7 @@
 setuptools<58.0.0
 cryptography==3.4.8
-ccxt
-pandas
+pandas==1.5.3
+numpy==1.24.3
 pandas-ta
 python-telegram-bot
+ccxt
