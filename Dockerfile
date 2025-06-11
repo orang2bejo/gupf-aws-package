@@ -1,21 +1,24 @@
-# Dockerfile - VERSI 2 (Lambda-Compatible)
+# Dockerfile - VERSI 2 (Lambda Packaging)
 
-# Gunakan image dasar resmi dari AWS Lambda untuk Python 3.12
-# Image ini menjamin semua library sistem (seperti GLIBC) akan cocok.
-FROM public.ecr.aws/lambda/python:3.12
+# Tahap 1: Build - Menginstal dependensi
+# Menggunakan image resmi dari AWS yang cocok dengan lingkungan Lambda
+FROM public.ecr.aws/lambda/python:3.11 as builder
 
-# Atur direktori kerja di dalam container
-WORKDIR ${LAMBDA_TASK_ROOT}
+# Salin file requirements.txt terlebih dahulu
+COPY requirements.txt ./
 
-# Salin file requirements.txt ke dalam container
-COPY requirements.txt .
+# Install semua library ke dalam sebuah direktori bernama /var/task/package
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt -t /var/task/package
 
-# Instal semua dependensi ke dalam sebuah folder bernama 'package'
-# Ini adalah cara standar untuk mem-package dependensi untuk Lambda
-RUN pip install -r requirements.txt --target ./package
+# Tahap 2: Final - Menggabungkan kode kita dengan library yang sudah diinstal
+FROM public.ecr.aws/lambda/python:3.11
 
-# Salin file kode utama kita ke dalam folder 'package' juga
-COPY gupf_brain_aws.py ./package/
+# Salin kode aplikasi Anda ke dalam direktori package juga
+COPY gupf_brain_aws.py /var/task/package/
 
-# CMD ini tidak wajib untuk proses build, tapi ini adalah praktik yang baik
-CMD [ "gupf_brain_aws.handler" ]
+# Salin seluruh folder package yang berisi library DAN kode kita dari tahap 'builder'
+COPY --from=builder /var/task/package /var/task/package
+
+# Atur handler Lambda. Perhatikan, kita sekarang menggunakan sub-folder 'package'
+CMD [ "package/gupf_brain_aws.handler" ]
