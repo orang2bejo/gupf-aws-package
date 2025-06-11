@@ -17,17 +17,21 @@ jobs:
       - name: Build the Docker image
         run: docker build . -t gupf-image
 
-      # ... bagian lain dari workflow ...
+       # 3. Mengekstrak hasil build menjadi file zip
       - name: Extract Lambda package
         run: |
           mkdir build
           CONTAINER_ID=$(docker create gupf-image)
-          # Perintah ini menyalin seluruh isi folder /var/task ke folder build
           docker cp $CONTAINER_ID:/var/task ./build
           docker rm $CONTAINER_ID
-          
-          # --- PERBAIKAN DI SINI ---
-          # Masuk ke dalam folder 'task' yang baru dibuat, lalu buat zip dari semua isinya.
-          # Tanda '.' berarti "semua file dan folder di direktori saat ini".
-          cd build/task && zip -r ../../gupf-deployment-package.zip .
-          # ------------------------
+          # MEMBUAT NAMA FILE ZIP YANG UNIK
+          cd build/task && zip -r ../../gupf-deployment-package-${{ github.run_number }}.zip .
+
+      # 4. Menyediakan file zip tersebut agar bisa Anda unduh
+      - name: Upload Lambda package as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          # MEMBERI NAMA ARTIFACT YANG UNIK
+          name: gupf-lambda-package-${{ github.run_number }}
+          # MENGARAHKAN KE NAMA FILE ZIP YANG UNIK
+          path: gupf-deployment-package-${{ github.run_number }}.zip
