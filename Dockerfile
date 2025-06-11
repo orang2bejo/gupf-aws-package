@@ -1,39 +1,21 @@
-# Dockerfile FINAL v2 - Dirancang untuk Stabilitas Maksimal (Python 3.10, Tanpa Rust)
+# Dockerfile - VERSI 2 (Lambda-Compatible)
 
-# --- TAHAP 1: BUILDER ---
-# Menggunakan Python 3.10 yang terbukti sangat stabil untuk C-extensions.
-FROM python:3.10-slim AS builder
+# Gunakan image dasar resmi dari AWS Lambda untuk Python 3.12
+# Image ini menjamin semua library sistem (seperti GLIBC) akan cocok.
+FROM public.ecr.aws/lambda/python:3.12
 
-# HANYA butuh alat build C/C++, TIDAK PERLU Rust.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+# Atur direktori kerja di dalam container
+WORKDIR ${LAMBDA_TASK_ROOT}
 
-# Atur direktori kerja.
-WORKDIR /app
-
-# Salin requirements.txt.
+# Salin file requirements.txt ke dalam container
 COPY requirements.txt .
 
-# Upgrade pip adalah best practice untuk menghindari error aneh.
-RUN pip install --upgrade pip
+# Instal semua dependensi ke dalam sebuah folder bernama 'package'
+# Ini adalah cara standar untuk mem-package dependensi untuk Lambda
+RUN pip install -r requirements.txt --target ./package
 
-# Instal semua library. Build akan jauh lebih cepat dan stabil.
-RUN pip install --target ./package -r requirements.txt
+# Salin file kode utama kita ke dalam folder 'package' juga
+COPY gupf_brain_aws.py ./package/
 
-
-# --- TAHAP 2: FINAL ---
-# Menggunakan base image AWS Lambda yang sesuai dengan versi Python kita.
-FROM public.ecr.aws/lambda/python:3.10
-
-# Tentukan direktori kerja Lambda.
-WORKDIR /var/task
-
-# Salin HANYA hasil build (folder 'package') dari tahap BUILDER.
-COPY --from=builder /app/package .
-
-# Salin kode fungsi Anda.
-COPY gupf_brain_aws.py .
-
-# Atur perintah yang akan dijalankan oleh Lambda.
+# CMD ini tidak wajib untuk proses build, tapi ini adalah praktik yang baik
 CMD [ "gupf_brain_aws.handler" ]
