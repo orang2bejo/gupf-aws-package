@@ -12,7 +12,6 @@ jobs:
 
     steps:
       - name: Checkout code
-        # Diperbarui ke v4
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -21,9 +20,10 @@ jobs:
           python-version: '3.12'
 
       - name: Build Lambda deployment package inside a Lambda-like environment
-  run: |
-    docker run --rm -v ${{ github.workspace }}:/var/task public.ecr.aws/lambda/python:3.12 /bin/sh -c "pip install -r /var/task/requirements.txt -t /var/task/python/lib/python3.12/site-packages/ && exit 0" gupf_brain_aws.handler
-      
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/var/task public.ecr.aws/lambda/python:3.12 /bin/sh -c "
+          pip install -r /var/task/requirements.txt -t /var/task/python/lib/python3.12/site-packages/"
+
       - name: Create deployment package
         run: |
           mkdir deployment
@@ -31,9 +31,8 @@ jobs:
           cp -r python deployment/
           cd deployment
           zip -r ../gupf-deployment-package.zip .
-          
+
       - name: Upload artifact
-        # Diperbarui ke v4
         uses: actions/upload-artifact@v4
         with:
           name: gupf-lambda-package
