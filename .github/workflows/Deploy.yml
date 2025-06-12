@@ -1,0 +1,40 @@
+name: Build and Deploy GUPF to Lambda
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Build Lambda deployment package inside a Lambda-like environment
+        # Ini adalah langkah kunci. Kita menggunakan Docker untuk meniru lingkungan Lambda.
+        # Semua 'pip install' terjadi di dalam container ini, memastikan kompatibilitas biner.
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/var/task public.ecr.aws/lambda/python:3.12 /bin/sh -c "pip install -r /var/task/requirements.txt -t /var/task/python/lib/python3.12/site-packages/; exit"
+      
+      - name: Create deployment package
+        run: |
+          mkdir deployment
+          cp gupf_brain_aws.py deployment/
+          cp -r python deployment/
+          cd deployment
+          zip -r ../gupf-deployment-package.zip .
+          
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: gupf-lambda-package
+          path: gupf-deployment-package.zip
