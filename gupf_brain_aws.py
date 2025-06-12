@@ -55,22 +55,56 @@ def get_sentiment_score(symbol: str) -> float:
     except Exception as e:
         return 0.0
 
+# Ganti fungsi get_technical_score yang lama dengan yang ini
 def get_technical_score(df: pd.DataFrame) -> float:
+    """
+    Menghitung skor teknikal dengan sistem poin kumulatif.
+    Setiap kondisi memberikan poin, bukan sistem 'semua atau tidak sama sekali'.
+    """
     score = 0.0
-    if len(df) < 20: return 0.0 # Butuh data cukup
-    last_row = df.iloc[-2]
-    
-    rsi = last_row.get('RSI_14', 50)
-    if rsi < 32: score += 0.3
-    if rsi > 68: score -= 0.3
+    try:
+        last_row = df.iloc[-1]
+        prev_row = df.iloc[-2]
 
-    if last_row.get('close', 0) < last_row.get('BBL_20_2.0', 0): score += 0.3
-    if last_row.get('close', 0) > last_row.get('BBU_20_2.0', 0): score -= 0.3
+        # --- Kondisi Beli (Menambah Skor Positif) ---
+        # 1. RSI Oversold (semakin rendah, semakin baik)
+        rsi = last_row.get('RSI_14', 50)
+        if 30 <= rsi < 35: score += 0.15
+        elif rsi < 30: score += 0.30
+
+        # 2. MACD Bullish Crossover (baru saja terjadi)
+        macd_line = last_row.get('MACD_12_26_9')
+        signal_line = last_row.get('MACDs_12_26_9')
+        prev_macd_line = prev_row.get('MACD_12_26_9')
+        prev_signal_line = prev_row.get('MACDs_12_26_9')
+        if prev_macd_line < prev_signal_line and macd_line > signal_line:
+            score += 0.35 # Crossover adalah sinyal kuat
+
+        # 3. Harga di Dekat atau di Bawah Lower Bollinger Band
+        lower_band = last_row.get('BBL_20_2.0', 0)
+        if lower_band > 0 and last_row['close'] < lower_band:
+            score += 0.35 # Sinyal pembalikan yang kuat
+
+        # --- Kondisi Jual (Menambah Skor Negatif) ---
+        # 1. RSI Overbought (semakin tinggi, semakin buruk)
+        if 65 <= rsi < 70: score -= 0.15
+        elif rsi >= 70: score -= 0.30
+
+        # 2. MACD Bearish Crossover (baru saja terjadi)
+        if prev_macd_line > prev_signal_line and macd_line < signal_line:
+            score -= 0.35 # Crossover adalah sinyal kuat
+
+        # 3. Harga di Dekat atau di Atas Upper Bollinger Band
+        upper_band = last_row.get('BBU_20_2.0', 0)
+        if upper_band > 0 and last_row['close'] > upper_band:
+            score -= 0.35 # Sinyal pembalikan yang kuat
+
+        # Batasi skor antara -1.0 dan 1.0
+        return max(min(score, 1.0), -1.0)
     
-    if last_row.get('MACDh_12_26_9', 0) > 0 and df.iloc[-3].get('MACDh_12_26_9', 0) <= 0: score += 0.4
-    if last_row.get('MACDh_12_26_9', 0) < 0 and df.iloc[-3].get('MACDh_12_26_9', 0) >= 0: score -= 0.4
-    
-    return max(-1.0, min(1.0, score))
+    except Exception as e:
+        # print(f"Error calculating technical score: {e}")
+        return 0.0
 
 def get_chaos_score(df: pd.DataFrame) -> float:
     try:
