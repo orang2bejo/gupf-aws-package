@@ -1,40 +1,56 @@
+# Nama workflow yang akan muncul di tab Actions GitHub
 name: Build and Deploy GUPF to Lambda
 
+# Pemicu: Workflow ini akan berjalan setiap kali ada 'push' ke branch 'main'
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
+  workflow_dispatch: # Memungkinkan Anda menjalankan workflow ini secara manual
 
 jobs:
   build:
+    # Menggunakan runner standar dari GitHub
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      # Langkah 1: Mengunduh kode dari repositori Anda
+      - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Langkah 2: Mengatur versi Python yang akan digunakan oleh runner
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Build Lambda deployment package inside a Lambda-like environment
-        # INI ADALAH PERBAIKANNYA: Menambahkan --entrypoint /bin/sh
-        # Ini memaksa container untuk menjalankan shell command, bukan entrypoint defaultnya.
+      # Langkah 3: Menginstal SEMUA library ke dalam folder 'python' menggunakan Docker
+      # Ini adalah langkah inti yang memastikan semua dependensi (termasuk C-libraries)
+      # cocok dengan lingkungan AWS Lambda.
+      - name: Install dependencies using Lambda Docker image
         run: |
-          docker run --entrypoint /bin/sh --rm -v ${{ github.workspace }}:/var/task public.ecr.aws/lambda/python:3.12 -c "pip install -r /var/task/requirements.txt -t /var/task/python/lib/python3.12/site-packages/ && exit 0"
+          docker run --rm -v "$(pwd)":/var/task public.ecr.aws/lambda/python:3.12 /bin/sh -c "pip install -r /var/task/requirements.txt -t /var/task/python/lib/python3.12/site-packages/ && exit 0"
       
+      # Langkah 4: Membuat paket ZIP yang siap di-deploy
       - name: Create deployment package
         run: |
+          # Buat direktori sementara untuk pengepakan
           mkdir deployment
+          
+          # Salin file utama Anda ke direktori deployment
           cp gupf_brain_aws.py deployment/
-          cp -r python deployment/
+          
+          # Salin folder 'python' yang berisi semua library ke direktori deployment
+          cp -r python/ deployment/
+          
+          # Masuk ke direktori deployment dan buat file ZIP
           cd deployment
           zip -r ../gupf-deployment-package.zip .
           
-      - name: Upload artifact
+      # Langkah 5: Mengunggah file ZIP sebagai artifact
+      # Sehingga Anda bisa mengunduhnya dari halaman ringkasan workflow.
+      - name: Upload deployment package as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gupf-lambda-package
+          name: gupf-deployment-package
           path: gupf-deployment-package.zip
