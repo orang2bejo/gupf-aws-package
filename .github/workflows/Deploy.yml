@@ -1,5 +1,5 @@
 # Nama workflow yang akan muncul di tab Actions GitHub
-name: Build and Deploy GUPF to Lambda
+name: Build and Deploy GUPF to Lambda (v-Final)
 
 # Pemicu: Workflow ini akan berjalan setiap kali ada 'push' ke branch 'main'
 on:
@@ -18,29 +18,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Langkah 2: Mengatur versi Python yang akan digunakan oleh runner
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      # Langkah 2: Membuat direktori 'package' untuk menampung semua file
+      - name: Create package directory
+        run: mkdir package
 
-      # Langkah 3: Menginstal SEMUA library ke dalam folder 'python' menggunakan Docker
-      - name: Install dependencies using Lambda Docker image
-        # INI ADALAH PERBAIKANNYA: Menambahkan --entrypoint /bin/sh
-        # Ini memaksa container untuk menjalankan shell command, bukan entrypoint defaultnya.
+      # Langkah 3: Menginstal SEMUA library LANGSUNG ke dalam folder 'package'
+      - name: Install dependencies into package folder
         run: |
-          docker run --entrypoint /bin/sh --rm -v "$(pwd)":/var/task public.ecr.aws/lambda/python:3.12 -c "pip install -r /var/task/requirements.txt -t /var/task/python/lib/python3.12/site-packages/ && exit 0"
+          docker run --entrypoint /bin/sh --rm -v "$(pwd)":/var/task public.ecr.aws/lambda/python:3.12 -c "pip install -r /var/task/requirements.txt -t /var/task/package/ && exit 0"
       
-      # Langkah 4: Membuat paket ZIP yang siap di-deploy
+      # Langkah 4: Menyalin file kode utama ke dalam folder 'package'
+      - name: Add function code to package
+        run: cp gupf_brain_aws.py package/
+
+      # Langkah 5: Membuat paket ZIP dari isi folder 'package'
       - name: Create deployment package
         run: |
-          mkdir deployment
-          cp gupf_brain_aws.py deployment/
-          cp -r python/ deployment/
-          cd deployment
+          cd package
           zip -r ../gupf-deployment-package.zip .
           
-      # Langkah 5: Mengunggah file ZIP sebagai artifact
+      # Langkah 6: Mengunggah file ZIP sebagai artifact
       - name: Upload deployment package as artifact
         uses: actions/upload-artifact@v4
         with:
