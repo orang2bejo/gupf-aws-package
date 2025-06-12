@@ -25,30 +25,22 @@ jobs:
           python-version: '3.12'
 
       # Langkah 3: Menginstal SEMUA library ke dalam folder 'python' menggunakan Docker
-      # Ini adalah langkah inti yang memastikan semua dependensi (termasuk C-libraries)
-      # cocok dengan lingkungan AWS Lambda.
       - name: Install dependencies using Lambda Docker image
+        # INI ADALAH PERBAIKANNYA: Menambahkan --entrypoint /bin/sh
+        # Ini memaksa container untuk menjalankan shell command, bukan entrypoint defaultnya.
         run: |
-          docker run --rm -v "$(pwd)":/var/task public.ecr.aws/lambda/python:3.12 /bin/sh -c "pip install -r /var/task/requirements.txt -t /var/task/python/lib/python3.12/site-packages/ && exit 0"
+          docker run --entrypoint /bin/sh --rm -v "$(pwd)":/var/task public.ecr.aws/lambda/python:3.12 -c "pip install -r /var/task/requirements.txt -t /var/task/python/lib/python3.12/site-packages/ && exit 0"
       
       # Langkah 4: Membuat paket ZIP yang siap di-deploy
       - name: Create deployment package
         run: |
-          # Buat direktori sementara untuk pengepakan
           mkdir deployment
-          
-          # Salin file utama Anda ke direktori deployment
           cp gupf_brain_aws.py deployment/
-          
-          # Salin folder 'python' yang berisi semua library ke direktori deployment
           cp -r python/ deployment/
-          
-          # Masuk ke direktori deployment dan buat file ZIP
           cd deployment
           zip -r ../gupf-deployment-package.zip .
           
       # Langkah 5: Mengunggah file ZIP sebagai artifact
-      # Sehingga Anda bisa mengunduhnya dari halaman ringkasan workflow.
       - name: Upload deployment package as artifact
         uses: actions/upload-artifact@v4
         with:
