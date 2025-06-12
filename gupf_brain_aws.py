@@ -169,7 +169,7 @@ async def process_asset_analysis(symbol, source, exchange):
 
         final_score = (tech_score * 0.55) + (sentiment_score * 0.30) + (chaos_score * 0.15)
         
-        CONFIDENCE_THRESHOLD = 0.48 # Kita pertahankan standar kualitasnya
+        CONFIDENCE_THRESHOLD = 0.48
         last_close = df.iloc[-1]['close']
         last_atr_percent = df.iloc[-1]['ATRr_14']
         
@@ -179,7 +179,7 @@ async def process_asset_analysis(symbol, source, exchange):
 
         print(f"[{symbol:<12}] Skor: {final_score:.2f} (T:{tech_score:.2f}, S:{sentiment_score:.2f}, C:{chaos_score:.2f}) | Source: {source}")
 
-        # === PERUBAHAN DI SINI ===
+        # === INILAH SATU-SATUNYA PERBAIKAN YANG ANDA BUTUHKAN ===
         if final_score >= CONFIDENCE_THRESHOLD:
             signal_info = {"symbol": symbol, "side": "BUY", "entry": last_close, "sl": last_close * (1 - last_atr * 2.0), "tp1": last_close * (1 + last_atr * 3.0), "confidence": final_score, "source": source, "tech_score": tech_score, "sent_score": sentiment_score, "chaos_score": chaos_score}
             await send_cornix_signal(signal_info)
