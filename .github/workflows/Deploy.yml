@@ -20,10 +20,11 @@ jobs:
           python-version: '3.12'
 
       - name: Build Lambda deployment package inside a Lambda-like environment
+        # INI ADALAH PERBAIKANNYA: Menambahkan --entrypoint /bin/sh
+        # Ini memaksa container untuk menjalankan shell command, bukan entrypoint defaultnya.
         run: |
-          docker run --rm -v ${{ github.workspace }}:/var/task public.ecr.aws/lambda/python:3.12 /bin/sh -c "
-          pip install -r /var/task/requirements.txt -t /var/task/python/lib/python3.12/site-packages/"
-
+          docker run --entrypoint /bin/sh --rm -v ${{ github.workspace }}:/var/task public.ecr.aws/lambda/python:3.12 -c "pip install -r /var/task/requirements.txt -t /var/task/python/lib/python3.12/site-packages/ && exit 0"
+      
       - name: Create deployment package
         run: |
           mkdir deployment
@@ -31,7 +32,7 @@ jobs:
           cp -r python deployment/
           cd deployment
           zip -r ../gupf-deployment-package.zip .
-
+          
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
