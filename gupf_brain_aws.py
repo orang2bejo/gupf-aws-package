@@ -1,4 +1,4 @@
-# gupf_brain_aws.py - VERSI 5.5
+# gupf_brain_aws.py - VERSI 5.6 The Spring-Load Protocol
 import math
 import os
 import ccxt.async_support as ccxt
@@ -40,7 +40,7 @@ async def execute_futures_scan_protocol():
 
 async def execute_spot_scalp_subroutine():
     """
-    ### PERBAIKAN: v5.5 (Mathematical Precision) ###
+    ### EVOLUSI: v5.6 (Spring-Load Protocol) ###
     Sub-rutin Sekunder untuk Efisiensi Modal.
     """
     print("💡 Memulai Protokol Sentinel (Spot Scalp)...")
@@ -52,6 +52,9 @@ async def execute_spot_scalp_subroutine():
     MAX_DURATION_SECONDS = 270
     CHECK_INTERVAL_SECONDS = 15
     start_time = asyncio.get_event_loop().time()
+
+    # --- Variabel Status untuk Spring-Load ---
+    spring_loaded = False
 
     exchange = ccxt.binance({'options': {'defaultType': 'spot'}})
     try:
@@ -69,24 +72,31 @@ async def execute_spot_scalp_subroutine():
                 continue
 
             last = df.iloc[-1]
-            prev = df.iloc[-2]
+            rsi = last.get('RSI_14', 50)
+            ema = last.get('EMA_9', 0)
+            
+            # --- Logika Spring-Load ---
+            # 1. Muat pegas jika RSI jatuh di bawah 35
+            if rsi < 35:
+                spring_loaded = True
+            
+            # 2. Reset pegas jika momentum sudah terlalu tinggi untuk mencegah sinyal basi
+            if rsi > 60:
+                spring_loaded = False
 
-            print(f"  [Sentinel] Memeriksa {SCALP_ASSET}... Harga: {last['close']}, EMA_9: {last.get('EMA_9', 0):.2f}, RSI: {last.get('RSI_14', 0):.2f}")
+            print(f"  [Sentinel] Memeriksa {SCALP_ASSET}... Harga: {last['close']}, EMA_9: {ema:.2f}, RSI: {rsi:.2f} | Spring-Loaded: {spring_loaded}")
 
-            # Logika Beli Scalping
-            if (prev['close'] < prev.get('EMA_9', float('inf'))) and \
-               (last['close'] > last.get('EMA_9', 0)) and \
-               (50 < last.get('RSI_14', 0) < 70):
+            # --- Logika Entri "Release" ---
+            # Kondisi: Pegas HARUS sudah dimuat, DAN RSI baru saja kembali ke atas 35
+            if spring_loaded and rsi > 35 and last['close'] > ema:
                 
                 entry_price = last['close']
                 take_profit = entry_price * (1 + TP_PERCENT)
                 stop_loss = entry_price * (1 - SL_PERCENT)
 
-                # ### PERBAIKAN MATEMATIS (v5.5) ###
                 market_info = exchange.market(SCALP_ASSET)
                 price_precision = float(market_info['precision']['price'])
                 
-                # Mengubah presisi (misal: 0.01) menjadi jumlah desimal (misal: 2)
                 decimal_places = 0
                 if 0 < price_precision < 1:
                     decimal_places = int(abs(math.log10(price_precision)))
@@ -96,11 +106,11 @@ async def execute_spot_scalp_subroutine():
                     "entry": f"{entry_price:.{decimal_places}f}",
                     "tp1": f"{take_profit:.{decimal_places}f}",
                     "sl": f"{stop_loss:.{decimal_places}f}",
-                    "confidence": 0.99, "source": "Sentinel Protocol"
+                    "confidence": 0.99, "source": "Spring-Load Protocol"
                 }
                 
                 await send_cornix_signal(signal_data)
-                print(f"  [Sentinel] Kondisi entri terpenuhi! Sinyal dikirim. Menghentikan sub-rutin.")
+                print(f"  [Sentinel] Kondisi Spring-Load terpenuhi! Sinyal dikirim. Menghentikan sub-rutin.")
                 break 
 
             await asyncio.sleep(CHECK_INTERVAL_SECONDS)
