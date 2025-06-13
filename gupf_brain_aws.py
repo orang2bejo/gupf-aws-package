@@ -209,9 +209,9 @@ async def process_asset_analysis(symbol, source, exchange):
         chaos_score = get_chaos_score(df)
         sentiment_score = get_sentiment_score(symbol)
 
-        final_score = (tech_score * 0.55) + (sentiment_score * 0.30) + (chaos_score * 0.15)
+        final_score = (tech_score * 0.70) + (sentiment_score * 0.15) + (chaos_score * 0.15)
         
-        CONFIDENCE_THRESHOLD = 0.45
+        CONFIDENCE_THRESHOLD = 0.40
         
         print(f"[{symbol:<12}] Skor: {final_score:.2f} (T:{tech_score:.2f}, S:{sentiment_score:.2f}, C:{chaos_score:.2f}) | Source: {source}")
 
