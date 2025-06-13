@@ -1,5 +1,4 @@
-# gupf_brain_aws.py - VERSI 5.2 (Genesis Protocol - Mode Operasi)
-
+# gupf_brain_aws.py - VERSI 5.4 
 import os
 import ccxt.async_support as ccxt
 import pandas as pd
@@ -40,8 +39,8 @@ async def execute_futures_scan_protocol():
 
 async def execute_spot_scalp_subroutine():
     """
-    ### PERBAIKAN: v5.2 ###
-    Sub-rutin Sekunder untuk Efisiensi Modal. Sekarang beroperasi sebagai Sentinel Listener Loop yang stabil.
+    ### PERBAIKAN: v5.4 (Final Fix - Await Correction) ###
+    Sub-rutin Sekunder untuk Efisiensi Modal.
     """
     print("💡 Memulai Protokol Sentinel (Spot Scalp)...")
     
@@ -50,12 +49,15 @@ async def execute_spot_scalp_subroutine():
     SL_PERCENT = 0.004  # 0.4%
     
     # --- Parameter Loop Sentinel ---
-    MAX_DURATION_SECONDS = 270  # Berjalan selama 4.5 menit
-    CHECK_INTERVAL_SECONDS = 15   # Periksa pasar setiap 15 detik
+    MAX_DURATION_SECONDS = 270
+    CHECK_INTERVAL_SECONDS = 15
     start_time = asyncio.get_event_loop().time()
 
     exchange = ccxt.binance({'options': {'defaultType': 'spot'}})
     try:
+        # PENTING: Muat pasar sekali di awal
+        await exchange.load_markets()
+
         while (asyncio.get_event_loop().time() - start_time) < MAX_DURATION_SECONDS:
             bars = await exchange.fetch_ohlcv(SCALP_ASSET, timeframe='1m', limit=100)
             df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
@@ -81,8 +83,8 @@ async def execute_spot_scalp_subroutine():
                 take_profit = entry_price * (1 + TP_PERCENT)
                 stop_loss = entry_price * (1 - SL_PERCENT)
 
-                # Mendapatkan presisi harga untuk format yang benar
-                market_info = await exchange.market(SCALP_ASSET)
+                # ### PERBAIKAN FINAL DAN PASTI (v5.4) ###         
+                market_info = exchange.market(SCALP_ASSET)
                 prec = market_info['precision']['price']
                 
                 signal_data = {
@@ -90,15 +92,16 @@ async def execute_spot_scalp_subroutine():
                     "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
                     "confidence": 0.99, "source": "Sentinel Protocol"
                 }
-                # PASTIKAN MEMANGGIL FUNGSI, BUKAN MENUNGGU DICTIONARY
+                
                 await send_cornix_signal(signal_data)
+
                 print(f"  [Sentinel] Kondisi entri terpenuhi! Sinyal dikirim. Menghentikan sub-rutin.")
-                break # Keluar dari loop setelah menemukan sinyal
+                break 
 
             await asyncio.sleep(CHECK_INTERVAL_SECONDS)
     except Exception as e:
         print(f"🔴 ERROR dalam Protokol Sentinel: {e}")
-        traceback.print_exc() # Aktifkan untuk debug mendalam
+        traceback.print_exc()
     finally:
         await exchange.close()
     print("✅ Protokol Sentinel Selesai.")
