@@ -1,4 +1,5 @@
-# gupf_brain_aws.py - VERSI 5.4 
+# gupf_brain_aws.py - VERSI 5.5
+import math
 import os
 import ccxt.async_support as ccxt
 import pandas as pd
@@ -39,23 +40,21 @@ async def execute_futures_scan_protocol():
 
 async def execute_spot_scalp_subroutine():
     """
-    ### PERBAIKAN: v5.4 (Final Fix - Await Correction) ###
+    ### PERBAIKAN: v5.5 (Mathematical Precision) ###
     Sub-rutin Sekunder untuk Efisiensi Modal.
     """
     print("💡 Memulai Protokol Sentinel (Spot Scalp)...")
     
     SCALP_ASSET = 'BNB/USDT'
-    TP_PERCENT = 0.008  # 0.8%
-    SL_PERCENT = 0.004  # 0.4%
+    TP_PERCENT = 0.008
+    SL_PERCENT = 0.004
     
-    # --- Parameter Loop Sentinel ---
     MAX_DURATION_SECONDS = 270
     CHECK_INTERVAL_SECONDS = 15
     start_time = asyncio.get_event_loop().time()
 
     exchange = ccxt.binance({'options': {'defaultType': 'spot'}})
     try:
-        # PENTING: Muat pasar sekali di awal
         await exchange.load_markets()
 
         while (asyncio.get_event_loop().time() - start_time) < MAX_DURATION_SECONDS:
@@ -83,18 +82,24 @@ async def execute_spot_scalp_subroutine():
                 take_profit = entry_price * (1 + TP_PERCENT)
                 stop_loss = entry_price * (1 - SL_PERCENT)
 
-                # ### PERBAIKAN FINAL DAN PASTI (v5.4) ###         
+                # ### PERBAIKAN MATEMATIS (v5.5) ###
                 market_info = exchange.market(SCALP_ASSET)
-                prec = market_info['precision']['price']
+                price_precision = float(market_info['precision']['price'])
+                
+                # Mengubah presisi (misal: 0.01) menjadi jumlah desimal (misal: 2)
+                decimal_places = 0
+                if 0 < price_precision < 1:
+                    decimal_places = int(abs(math.log10(price_precision)))
                 
                 signal_data = {
                     "protocol": "Scalp", "symbol": SCALP_ASSET, "side": "BUY",
-                    "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
+                    "entry": f"{entry_price:.{decimal_places}f}",
+                    "tp1": f"{take_profit:.{decimal_places}f}",
+                    "sl": f"{stop_loss:.{decimal_places}f}",
                     "confidence": 0.99, "source": "Sentinel Protocol"
                 }
                 
                 await send_cornix_signal(signal_data)
-
                 print(f"  [Sentinel] Kondisi entri terpenuhi! Sinyal dikirim. Menghentikan sub-rutin.")
                 break 
 
