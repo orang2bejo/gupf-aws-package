@@ -1,4 +1,4 @@
-# gupf_brain_aws.py - VERSI 5.0 (Genesis Protocol)
+# gupf_brain_aws.py - VERSI 5.1 (Genesis Protocol - Sentinel)
 
 import os
 import ccxt.async_support as ccxt
@@ -39,52 +39,62 @@ async def execute_futures_scan_protocol():
     print("✅ Futures Scan Protocol Concluded.")
 
 async def execute_spot_scalp_subroutine():
-    """Secondary Capital-Efficiency Sub-routine for Spot Market."""
-    print("💡 No futures signal found. Initiating Spot Scalp Sub-routine...")
+    """
+    ### EVOLUTION: v5.1 ###
+    Secondary Capital-Efficiency Sub-routine. Now operates as a Sentinel Listener Loop.
+    """
+    print("💡 No futures signal found. Initiating Sentinel Protocol (Spot Scalp)...")
     
     SCALP_ASSET = 'BNB/USDT'
     TP_PERCENT = 0.008  # 0.8%
     SL_PERCENT = 0.004  # 0.4%
+    
+    # --- Sentinel Loop Parameters ---
+    MAX_DURATION_SECONDS = 270  # Run for 4.5 minutes
+    CHECK_INTERVAL_SECONDS = 15   # Check market every 15 seconds
+    start_time = asyncio.get_event_loop().time()
 
     exchange = ccxt.binance({'options': {'defaultType': 'spot'}})
     try:
-        # Fetch 1-minute data
-        bars = await exchange.fetch_ohlcv(SCALP_ASSET, timeframe='1m', limit=100)
-        df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        
-        # Calculate scalping indicators
-        df.ta.ema(length=9, append=True)
-        df.ta.rsi(length=14, append=True)
-
-        last = df.iloc[-1]
-        prev = df.iloc[-2]
-
-        # Scalping Buy Logic
-        if prev['close'] < prev['EMA_9'] and last['close'] > last['EMA_9'] and 50 < last['RSI_14'] < 70:
-            entry_price = last['close']
-            take_profit = entry_price * (1 + TP_PERCENT)
-            stop_loss = entry_price * (1 - SL_PERCENT)
-
-            prec = (await exchange.market(SCALP_ASSET))['precision']['price']
+        while (asyncio.get_event_loop().time() - start_time) < MAX_DURATION_SECONDS:
+            # Fetch 1-minute data
+            bars = await exchange.fetch_ohlcv(SCALP_ASSET, timeframe='1m', limit=100)
+            df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             
-            signal_data = {
-                "protocol": "Scalp",
-                "symbol": SCALP_ASSET,
-                "side": "BUY",
-                "entry": f"{entry_price:.{prec}f}",
-                "tp1": f"{take_profit:.{prec}f}",
-                "sl": f"{stop_loss:.{prec}f}",
-                "confidence": 0.99, # Confidence is high because this is a defined ruleset
-                "source": "Spot Sub-routine"
-            }
-            await send_cornix_signal(signal_data)
+            # Calculate scalping indicators
+            df.ta.ema(length=9, append=True)
+            df.ta.rsi(length=14, append=True)
+
+            last = df.iloc[-1]
+            prev = df.iloc[-2]
+
+            print(f"  [Sentinel] Checking {SCALP_ASSET}... Close: {last['close']}, EMA_9: {last['EMA_9']:.2f}, RSI: {last['RSI_14']:.2f}")
+
+            # Scalping Buy Logic
+            if prev['close'] < prev['EMA_9'] and last['close'] > last['EMA_9'] and 50 < last['RSI_14'] < 70:
+                entry_price = last['close']
+                take_profit = entry_price * (1 + TP_PERCENT)
+                stop_loss = entry_price * (1 - SL_PERCENT)
+
+                prec = (await exchange.market(SCALP_ASSET))['precision']['price']
+                
+                signal_data = {
+                    "protocol": "Scalp", "symbol": SCALP_ASSET, "side": "BUY",
+                    "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
+                    "confidence": 0.99, "source": "Sentinel Protocol"
+                }
+                await send_cornix_signal(signal_data)
+                print(f"  [Sentinel] Entry condition met! Signal dispatched. Terminating sub-routine.")
+                break # Exit the loop after finding a signal
+
+            # Wait for the next check
+            await asyncio.sleep(CHECK_INTERVAL_SECONDS)
 
     except Exception as e:
-        print(f"🔴 ERROR in Spot Scalp Sub-routine: {e}")
-        # traceback.print_exc() # Uncomment for deep debugging
+        print(f"🔴 ERROR in Sentinel Protocol: {e}")
     finally:
         await exchange.close()
-    print("✅ Spot Scalp Sub-routine Concluded.")
+    print("✅ Sentinel Protocol Concluded.")
 
 
 # --- CORE LOGIC & HELPER FUNCTIONS ---
@@ -265,13 +275,14 @@ def handler(event, context):
     global FUTURES_SIGNAL_FOUND
     FUTURES_SIGNAL_FOUND = False # Reset flag at the start of each run
 
-    loop = asyncio.get_event_loop()
-    
-    # Execute primary protocol
-    loop.run_until_complete(execute_futures_scan_protocol())
+    # Using asyncio.run for cleaner top-level execution
+    # Run primary protocol
+    asyncio.run(execute_futures_scan_protocol())
 
     # Conditionally execute secondary protocol
     if not FUTURES_SIGNAL_FOUND:
-        loop.run_until_complete(execute_spot_scalp_subroutine())
+        asyncio.run(execute_spot_scalp_subroutine())
+    else:
+        print("✅ Futures signal found. Bypassing Sentinel Protocol.")
     
-    return {'statusCode': 200, 'body': json.dumps('GUPF v5.0 Cycle Complete.')}
+    return {'statusCode': 200, 'body': json.dumps('GUPF v5.1 Cycle Complete.')}
