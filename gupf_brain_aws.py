@@ -38,26 +38,34 @@ async def execute_futures_scan_protocol():
         await exchange.close()
     print("✅ Protokol Pemindaian Futures Selesai.")
 
-# GANTI FUNGSI LAMA DENGAN YANG INI
-# HAPUS FUNGSI execute_spot_scalp_subroutine YANG LAMA
-# DAN GANTI DENGAN DUA FUNGSI BARU INI
+# GANTI FUNGSI analyze_spot_scalp_asset LAMA DENGAN VERSI v6.1 INI
 
 async def analyze_spot_scalp_asset(symbol, exchange):
     """
-    ### EVOLUSI: v6.0 (VWAP Momentum Protocol) ###
-    Menganalisis satu aset spot menggunakan logika EMA 5/12 Crossover + VWAP Filter.
+    ### EVOLUSI: v6.1 (Time-Aware Protocol) ###
+    Menganalisis satu aset spot dengan memperbaiki masalah kesadaran waktu (DatetimeIndex).
     """
     try:
         # --- Analisis Mikro (1m) ---
         bars = await exchange.fetch_ohlcv(symbol, timeframe='1m', limit=100)
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         
+        # ### PERBAIKAN KRITIS v6.1 ###
+        # Mengubah kolom 'timestamp' (dalam milidetik) menjadi DatetimeIndex yang benar.
+        # Ini mengaktifkan "kesadaran waktu" pada GUPF.
+        df.set_index(pd.to_datetime(df['timestamp'], unit='ms'), inplace=True)
+
+        if df.empty:
+            return None
+
         # ### INDIKATOR BARU v6.0 ###
         df.ta.ema(length=5, append=True)
         df.ta.ema(length=12, append=True)
-        df.ta.vwap(length=14, append=True) # VWAP harian
+        # Sekarang VWAP akan bekerja dengan benar karena sudah ada DatetimeIndex
+        df.ta.vwap(length=14, append=True) 
 
-        if df.empty or df.isnull().values.any():
+        # Memastikan tidak ada nilai kosong setelah kalkulasi
+        if df.isnull().values.any():
             return None
 
         last = df.iloc[-1]
@@ -70,15 +78,12 @@ async def analyze_spot_scalp_asset(symbol, exchange):
         prev_ema_5 = prev.get('EMA_5')
         prev_ema_12 = prev.get('EMA_12')
 
-        # Kondisi 1: Terjadi bullish crossover baru saja
         is_bullish_cross = prev_ema_5 < prev_ema_12 and ema_5 > ema_12
-        # Kondisi 2: Harga berada di atas VWAP
         is_above_vwap = last['close'] > vwap
         
         if is_bullish_cross and is_above_vwap:
             entry_price = last['close']
             
-            # Kita tetap menggunakan ATR untuk Manajemen Risiko Dinamis
             df.ta.atr(length=14, append=True)
             last_atr = df.iloc[-1].get('ATR_14', 0)
             if last_atr == 0: return None
@@ -89,19 +94,19 @@ async def analyze_spot_scalp_asset(symbol, exchange):
             market_info = exchange.market(symbol)
             prec = market_info['precision']['price']
             
-            # "Keyakinan" sekarang adalah seberapa jauh harga di atas VWAP
             confidence_score = (last['close'] / vwap) 
             
             return {
                 "protocol": "VWAP_Momentum", "symbol": symbol, "side": "BUY",
                 "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
                 "confidence": confidence_score, 
-                "source": "VWAP Momentum v6.0"
+                "source": "VWAP Momentum v6.1"
             }
         
         return None
     except Exception as e:
-        print(f"  [Analisis VWAP] Gagal menganalisis {symbol}: {e}")
+        # Mencetak pesan error yang lebih informatif
+        print(f"  [Analisis VWAP] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
         return None
 
 async def execute_scalp_fleet_protocol():
