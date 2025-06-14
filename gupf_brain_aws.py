@@ -44,46 +44,43 @@ async def execute_futures_scan_protocol():
 
 async def analyze_spot_scalp_asset(symbol, exchange):
     """
-    ### BARU v5.9 ###
-    Menganalisis satu aset spot untuk menemukan sinyal scalping yang valid.
-    Mengembalikan dictionary sinyal jika valid, atau None jika tidak.
+    ### EVOLUSI: v6.0 (VWAP Momentum Protocol) ###
+    Menganalisis satu aset spot menggunakan logika EMA 5/12 Crossover + VWAP Filter.
     """
     try:
-        # --- Pilar 1: Filter Makro (15m) ---
-        macro_bars = await exchange.fetch_ohlcv(symbol, timeframe='15m', limit=100)
-        df_macro = pd.DataFrame(macro_bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df_macro.ta.ema(length=50, append=True)
-        
-        last_macro_close = df_macro.iloc[-1]['close']
-        macro_ema_50 = df_macro.iloc[-1].get('EMA_50', 0)
-
-        if last_macro_close < macro_ema_50:
-            return None # Blok jika tren makro turun
-
         # --- Analisis Mikro (1m) ---
         bars = await exchange.fetch_ohlcv(symbol, timeframe='1m', limit=100)
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         
-        df.ta.ema(length=9, append=True)
-        df.ta.rsi(length=14, append=True)
-        df.ta.atr(length=14, append=True)
+        # ### INDIKATOR BARU v6.0 ###
+        df.ta.ema(length=5, append=True)
+        df.ta.ema(length=12, append=True)
+        df.ta.vwap(length=14, append=True) # VWAP harian
 
-        if df.empty or len(df) < 21:
+        if df.empty or df.isnull().values.any():
             return None
 
         last = df.iloc[-1]
-        last_volume = last['volume']
-        avg_volume = df['volume'].rolling(window=20).mean().iloc[-1]
+        prev = df.iloc[-2]
         
-        # --- Kondisi Entri dengan Keyakinan ---
-        is_volume_spike = last_volume > (avg_volume * 2.5)
-        is_bullish_cross = last['close'] > last.get('EMA_9', 0)
-        rsi_value = last.get('RSI_14', 0)
-        is_good_rsi = 40 < rsi_value < 65
+        # --- KONDISI ENTRI BARU (VWAP MOMENTUM) ---
+        ema_5 = last.get('EMA_5')
+        ema_12 = last.get('EMA_12')
+        vwap = last.get('VWAP_14')
+        prev_ema_5 = prev.get('EMA_5')
+        prev_ema_12 = prev.get('EMA_12')
 
-        if is_volume_spike and is_bullish_cross and is_good_rsi:
+        # Kondisi 1: Terjadi bullish crossover baru saja
+        is_bullish_cross = prev_ema_5 < prev_ema_12 and ema_5 > ema_12
+        # Kondisi 2: Harga berada di atas VWAP
+        is_above_vwap = last['close'] > vwap
+        
+        if is_bullish_cross and is_above_vwap:
             entry_price = last['close']
-            last_atr = last.get('ATR_14', 0)
+            
+            # Kita tetap menggunakan ATR untuk Manajemen Risiko Dinamis
+            df.ta.atr(length=14, append=True)
+            last_atr = df.iloc[-1].get('ATR_14', 0)
             if last_atr == 0: return None
 
             stop_loss = entry_price - (last_atr * 1.5)
@@ -92,17 +89,19 @@ async def analyze_spot_scalp_asset(symbol, exchange):
             market_info = exchange.market(symbol)
             prec = market_info['precision']['price']
             
+            # "Keyakinan" sekarang adalah seberapa jauh harga di atas VWAP
+            confidence_score = (last['close'] / vwap) 
+            
             return {
-                "protocol": "Scalp_Fleet", "symbol": symbol, "side": "BUY",
+                "protocol": "VWAP_Momentum", "symbol": symbol, "side": "BUY",
                 "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
-                # 'Keyakinan' sekarang adalah nilai RSI itu sendiri untuk tujuan pengurutan
-                "confidence": rsi_value, 
-                "source": "Scalp Fleet Protocol v5.9"
+                "confidence": confidence_score, 
+                "source": "VWAP Momentum v6.0"
             }
         
         return None
     except Exception as e:
-        print(f"  [Analisis Scalp] Gagal menganalisis {symbol}: {e}")
+        print(f"  [Analisis VWAP] Gagal menganalisis {symbol}: {e}")
         return None
 
 async def execute_scalp_fleet_protocol():
@@ -257,19 +256,25 @@ async def get_scan_list():
 
 # --- MASTER LAMBDA HANDLER ---
 def handler(event, context):
-    """Titik masuk absolut dari sistem GUPF."""
+    """
+    ### PERBAIKAN WAJIB (v5.9.1) ###
+    Memperbaiki NameError dengan memanggil nama fungsi yang benar.
+    """
     global FUTURES_SIGNAL_FOUND
     FUTURES_SIGNAL_FOUND = False
     
-    print(f"GUPF v5.2 berjalan dalam mode: {GUPF_OPERATING_MODE}")
+    version = "5.9.1"
+    print(f"GUPF v({version}) berjalan dalam mode: {GUPF_OPERATING_MODE}")
 
     if GUPF_OPERATING_MODE == "SCALP_ONLY":
-        asyncio.run(execute_spot_scalp_subroutine())
-    else: # Mode default adalah FUTURES
+        # Memanggil nama fungsi yang baru dan benar
+        asyncio.run(execute_scalp_fleet_protocol())
+    else:
         asyncio.run(execute_futures_scan_protocol())
         if not FUTURES_SIGNAL_FOUND:
+            # Memanggil nama fungsi yang baru dan benar
             asyncio.run(execute_scalp_fleet_protocol())
         else:
-            print("✅ Sinyal Futures ditemukan. Melewati Protokol Sentinel.")
+            print("✅ Sinyal Futures ditemukan. Melewati Protokol Armada Scalp.")
     
-    return {'statusCode': 200, 'body': json.dumps('Siklus GUPF v5.2 Selesai.')}
+    return {'statusCode': 200, 'body': json.dumps(f'Siklus GUPF v{version} Selesai.')}
