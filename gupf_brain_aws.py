@@ -1,4 +1,4 @@
-# gupf_brain_aws.py - VERSI 7.2 (Bifurcated Protocol)
+# gupf_brain_aws.py - VERSI 7.3 (Unified Scoring Protocol)
 import numpy as np
 import math
 import os
@@ -43,99 +43,82 @@ async def execute_futures_scan_protocol():
 
 async def analyze_spot_scalp_asset(symbol, exchange):
     """
-    ### EVOLUSI DEFINITIF: v7.2 (Bifurcated Protocol) ###
-    Menggunakan dua strategi berburu independen secara bersamaan:
-    1. Momentum Rider: Mengikuti tren makro dengan entri EMA crossover.
-    2. Anomaly Hunter: Mengabaikan tren, hanya memburu lonjakan Z-Score.
+    ### EVOLUSI DEFINITIF: v7.3 (Unified Scoring Protocol) ###
+    Menggabungkan semua strategi menjadi satu skor terpadu untuk menilai peluang secara relatif.
     """
     try:
-        # --- Pengumpulan Data Universal ---
+        # --- Pengumpulan & Perhitungan Data Universal ---
         macro_bars = await exchange.fetch_ohlcv(symbol, timeframe='15m', limit=100)
         df_macro = pd.DataFrame(macro_bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df_macro.ta.ema(length=50, append=True)
         
         bars = await exchange.fetch_ohlcv(symbol, timeframe='1m', limit=100)
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
 
-        if df.empty or len(df) < 22: return None
+        if df.empty or len(df) < 22 or df_macro.empty: return None
 
-        # --- Kalkulasi Indikator Universal ---
-        # Makro
-        df_macro.ta.ema(length=50, append=True)
-        # Mikro
-        df.ta.ema(length=5, append=True)
-        df.ta.ema(length=12, append=True)
-        df.ta.atr(length=14, append=True)
-        
-        # Fisika
-        v = df['close'].diff()
-        a = v.diff()
-        L = np.sqrt(df['volume'].replace(0, 1e-9))
-        F = a * L
-        F_mean = F.rolling(window=20).mean()
-        F_std = F.rolling(window=20).std()
-        Z_score = (F - F_mean) / F_std
+        df.ta.ema(length=5, append=True); df.ta.ema(length=12, append=True); df.ta.atr(length=14, append=True)
+        v = df['close'].diff(); a = v.diff(); L = np.sqrt(df['volume'].replace(0, 1e-9)); F = a * L
+        F_mean = F.rolling(window=20).mean(); F_std = F.rolling(window=20).std().replace(0, 1e-9); Z_score = (F - F_mean) / F_std
         df['Z'] = Z_score
 
-        # Memastikan tidak ada nilai kosong setelah semua kalkulasi
-        if df.isnull().values.any() or df_macro.isnull().values.any():
-            return None
+        if df.isnull().values.any() or df_macro.isnull().values.any(): return None
         
-        last = df.iloc[-1]
-        prev = df.iloc[-2]
+        last = df.iloc[-1]; last_macro = df_macro.iloc[-1]
+        
+        # --- PERHITUNGAN SKOR BARU v7.3 ---
+        # 1. Skor Tren Makro (0-1, 1 adalah netral)
+        macro_trend_score = last_macro['close'] / last_macro.get('EMA_50', last_macro['close'])
 
-        # --- STRATEGI 1: MOMENTUM RIDER ---
-        is_macro_trend_up = df_macro.iloc[-1]['close'] > df_macro.iloc[-1].get('EMA_50', 0)
-        if is_macro_trend_up:
-            is_micro_cross = prev.get('EMA_5') < prev.get('EMA_12') and last.get('EMA_5') > last.get('EMA_12')
-            if is_micro_cross:
-                # Sinyal Ditemukan!
-                source_protocol = "Momentum Rider v7.2"
-                confidence_score = last.get('EMA_5') / last.get('EMA_12') # Rasio EMA sebagai keyakinan
-                entry_price = last['close']
-                last_atr = last.get('ATR_14', 0)
-                if last_atr > 0:
-                    stop_loss = entry_price - (last_atr * 1.5)
-                    take_profit = entry_price + (last_atr * 2.5)
-                    market_info = exchange.market(symbol)
-                    prec = market_info['precision']['price']
-                    return {
-                        "protocol": "Momentum_Rider", "symbol": symbol, "side": "BUY",
-                        "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
-                        "confidence": confidence_score, "source": source_protocol
-                    }
+        # 2. Skor Momentum Mikro (0-1, 1 adalah netral)
+        micro_momentum_score = last.get('EMA_5') / last.get('EMA_12', last.get('EMA_5'))
+
+        # 3. Skor Anomali Gaya (0-1, dinormalisasi dari Z-score)
+        # Kami meng-clamp Z-score antara 0 dan 3 untuk stabilitas, lalu menormalisasinya
+        capped_z_score = max(0, min(last.get('Z', 0), 3.0))
+        force_anomaly_score = capped_z_score / 3.0 
         
-        # --- STRATEGI 2: ANOMALY HUNTER ---
-        FORCE_Z_SCORE_THRESHOLD = 2.8 # Sedikit menaikkan threshold untuk sinyal yang lebih kuat
-        if last['Z'] > FORCE_Z_SCORE_THRESHOLD:
-            # Sinyal Ditemukan!
-            source_protocol = "Anomaly Hunter v7.2"
-            confidence_score = last['Z']
+        # --- PENILAIAN & KEPUTUSAN ---
+        # Hanya pertimbangkan aset yang setidaknya dalam tren mikro naik
+        if micro_momentum_score < 1.001:
+            return None
+
+        # Kalkulasi Skor Akhir Terpadu
+        final_score = (macro_trend_score * 0.3) + (micro_momentum_score * 1.0) + (force_anomaly_score * 0.6)
+        
+        # Ambang Batas Minimal: hanya sinyal dengan skor yang menjanjikan
+        CONFIDENCE_SCORE_THRESHOLD = 1.05 
+        
+        if final_score > CONFIDENCE_SCORE_THRESHOLD:
             entry_price = last['close']
             last_atr = last.get('ATR_14', 0)
-            if last_atr > 0:
-                stop_loss = entry_price - (last_atr * 1.5)
-                take_profit = entry_price + (last_atr * 2.5)
-                market_info = exchange.market(symbol)
-                prec = market_info['precision']['price']
-                return {
-                    "protocol": "Anomaly_Hunter", "symbol": symbol, "side": "BUY",
-                    "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
-                    "confidence": confidence_score, "source": source_protocol
-                }
+            if last_atr == 0: return None
 
-        # Jika tidak ada strategi yang terpicu
+            stop_loss = entry_price - (last_atr * 1.5)
+            take_profit = entry_price + (last_atr * 2.5)
+            
+            market_info = exchange.market(symbol)
+            prec = market_info['precision']['price']
+            
+            return {
+                "protocol": "Unified_Scoring", "symbol": symbol, "side": "BUY",
+                "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
+                "confidence": final_score, 
+                "source": f"Unified Scoring v7.3 (M:{macro_trend_score:.2f},μ:{micro_momentum_score:.2f},F:{force_anomaly_score:.2f})"
+            }
+        
         return None
         
     except Exception as e:
-        print(f"  [Analisis v7.2] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
+        print(f"  [Analisis v7.3] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
         return None
 
 async def execute_scalp_fleet_protocol():
     """
-    ### EVOLUSI: v7.2 (Bifurcated Protocol) ###
+    ### EVOLUSI: v7.3 (Unified Scoring Protocol) ###
     Memindai banyak aset spot dan mengeksekusi 5 sinyal terbaik.
     """
-    print("💡 Memulai Protokol Armada Scalp v7.2...") # Ubah v5.9 menjadi v7.1
+    print("💡 Memulai Protokol Armada Scalp v7.3...") # Ubah v5.9 menjadi v7.1
     
     # 1. Mendapatkan daftar target yang sama dengan futures
     scan_list = await get_scan_list()
@@ -283,7 +266,7 @@ async def get_scan_list():
 # --- MASTER LAMBDA HANDLER ---
 def handler(event, context):
     """
-    ### HANDLER FINAL untuk v7.2 ###
+    ### HANDLER FINAL untuk v7.3 ###
     Papan sirkuit utama GUPF, terhubung ke mesin fisika.
     """
     global FUTURES_SIGNAL_FOUND
