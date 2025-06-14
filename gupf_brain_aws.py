@@ -1,4 +1,4 @@
-# gupf_brain_aws.py - VERSI 7.0 (Physics-Hybrid Protocol)
+# gupf_brain_aws.py - VERSI 7.1 The Anomaly Hunter
 import numpy as np
 import math
 import os
@@ -43,9 +43,8 @@ async def execute_futures_scan_protocol():
 
 async def analyze_spot_scalp_asset(symbol, exchange):
     """
-    ### EVOLUSI: v7.0 (Physics-Hybrid Protocol) ###
-    Menggunakan kalkulasi Gaya (Force) dari EMA-X sebagai pemicu entri,
-    dipadukan dengan filter makro dan manajemen risiko dinamis dari GUPF.
+    ### EVOLUSI: v7.1 (Anomaly Hunter Protocol) ###
+    Menggunakan Z-Score dari Gaya (Force) untuk mendeteksi lonjakan anomali secara statistik.
     """
     try:
         # --- Pilar 1: Filter Konteks Makro GUPF (15m) ---
@@ -53,36 +52,37 @@ async def analyze_spot_scalp_asset(symbol, exchange):
         df_macro = pd.DataFrame(macro_bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df_macro.ta.ema(length=50, append=True)
         if df_macro.iloc[-1]['close'] < df_macro.iloc[-1].get('EMA_50', 0):
-            return None # Blok jika tren makro turun
+            return None
 
-        # --- Pilar 2: Kalkulasi Fisika EMA-X (1m) ---
+        # --- Pilar 2: Kalkulasi Fisika & Statistik (1m) ---
         bars = await exchange.fetch_ohlcv(symbol, timeframe='1m', limit=100)
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         
-        # Kecepatan (v): Perubahan harga dari candle sebelumnya
         v = df['close'].diff()
-        # Percepatan (a): Perubahan kecepatan
         a = v.diff()
-        # Massa (L): Proxy likuiditas (mengatasi nilai volume 0 untuk mencegah error)
-        L = np.sqrt(df['volume'].replace(0, 1e-9)) # Ganti 0 dengan nilai sangat kecil
-        # Gaya (F): Gabungan dari percepatan dan massa
+        L = np.sqrt(df['volume'].replace(0, 1e-9))
         F = a * L
         
-        df['F'] = F # Tambahkan kolom Gaya ke DataFrame
+        # --- PERHITUNGAN Z-SCORE BARU ---
+        lookback_period = 20
+        # Rata-rata bergerak dari Gaya
+        F_mean = F.rolling(window=lookback_period).mean()
+        # Standar deviasi bergerak dari Gaya
+        F_std = F.rolling(window=lookback_period).std()
+        # Z-Score dari Gaya
+        Z_score = (F - F_mean) / F_std
+        
+        df['Z'] = Z_score # Tambahkan kolom Z-Score
 
-        if df.empty or len(df) < 5: return None
-        if df['F'].isnull().all(): return None
+        if df.empty or len(df) < lookback_period + 2: return None
+        if df['Z'].isnull().all(): return None
 
         last = df.iloc[-1]
         
-        # --- Kondisi Entri: Deteksi Lonjakan Gaya ---
-        highest_F_lookback = df['F'].rolling(window=3).max().shift(1).iloc[-1]
+        # --- KONDISI ENTRI BERBASIS ANOMALI ---
+        FORCE_Z_SCORE_THRESHOLD = 2.5 # Ambang batas anomali (bisa disesuaikan)
         
-        F_threshold = 0.0 # Ambang batas minimal agar tidak dipicu oleh noise
-        
-        is_force_spike = last['F'] > highest_F_lookback and last['F'] > F_threshold
-
-        if is_force_spike:
+        if last['Z'] > FORCE_Z_SCORE_THRESHOLD:
             entry_price = last['close']
             
             # --- Pilar 3: Manajemen Risiko Dinamis GUPF (ATR) ---
@@ -96,26 +96,27 @@ async def analyze_spot_scalp_asset(symbol, exchange):
             market_info = exchange.market(symbol)
             prec = market_info['precision']['price']
             
-            confidence_score = last['F']
+            # 'Keyakinan' sekarang adalah nilai Z-Score itu sendiri
+            confidence_score = last['Z']
             
             return {
-                "protocol": "Physics_Hybrid", "symbol": symbol, "side": "BUY",
+                "protocol": "Anomaly_Hunter", "symbol": symbol, "side": "BUY",
                 "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
                 "confidence": confidence_score, 
-                "source": "Physics Hybrid v7.0"
+                "source": "Anomaly Hunter v7.1"
             }
         
         return None
     except Exception as e:
-        print(f"  [Analisis Fisika] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
+        print(f"  [Analisis Anomali] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
         return None
 
 async def execute_scalp_fleet_protocol():
     """
-    ### EVOLUSI: v5.9 (Scalp Fleet Protocol) ###
+    ### EVOLUSI: v7.1 (The Anomaly Hunter) ###
     Memindai banyak aset spot dan mengeksekusi 5 sinyal terbaik.
     """
-    print("💡 Memulai Protokol Armada Scalp v5.9...")
+    print("💡 Memulai Protokol Armada Scalp v7.1...") # Ubah v5.9 menjadi v7.1
     
     # 1. Mendapatkan daftar target yang sama dengan futures
     scan_list = await get_scan_list()
@@ -263,14 +264,14 @@ async def get_scan_list():
 # --- MASTER LAMBDA HANDLER ---
 def handler(event, context):
     """
-    ### HANDLER FINAL untuk v7.0 ###
+    ### HANDLER FINAL untuk v7.1 ###
     Papan sirkuit utama GUPF, terhubung ke mesin fisika.
     """
     global FUTURES_SIGNAL_FOUND
     FUTURES_SIGNAL_FOUND = False
     
     # Versi untuk logging yang jelas
-    version = "7.0"
+    version = "7.1"
     print(f"GUPF v({version}) berjalan dalam mode: {GUPF_OPERATING_MODE}")
 
     if GUPF_OPERATING_MODE == "SCALP_ONLY":
