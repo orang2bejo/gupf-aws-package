@@ -1,4 +1,4 @@
-# gupf_brain_aws.py - VERSI 5.6 The Spring-Load Protocol
+# gupf_brain_aws.py - VERSI 5.7 The Conviction Protocol
 import math
 import os
 import ccxt.async_support as ccxt
@@ -38,79 +38,85 @@ async def execute_futures_scan_protocol():
         await exchange.close()
     print("✅ Protokol Pemindaian Futures Selesai.")
 
+# GANTI FUNGSI LAMA DENGAN YANG INI
 async def execute_spot_scalp_subroutine():
     """
-    ### EVOLUSI: v5.6 (Spring-Load Protocol) ###
-    Sub-rutin Sekunder untuk Efisiensi Modal.
+    ### EVOLUSI: v5.7 (Conviction Protocol) ###
+    Sub-rutin yang di-upgrade dengan Macro-Filter, Konfirmasi Volume, dan Risiko Dinamis.
     """
-    print("💡 Memulai Protokol Sentinel (Spot Scalp)...")
+    print("💡 Memulai Protokol Sentinel v5.7 (Conviction)...")
     
     SCALP_ASSET = 'BNB/USDT'
-    TP_PERCENT = 0.008
-    SL_PERCENT = 0.004
-    
     MAX_DURATION_SECONDS = 270
-    CHECK_INTERVAL_SECONDS = 15
-    start_time = asyncio.get_event_loop().time()
-
-    # --- Variabel Status untuk Spring-Load ---
-    spring_loaded = False
+    CHECK_INTERVAL_SECONDS = 20 # Sedikit lebih lama untuk mengakomodasi 2 panggilan API
 
     exchange = ccxt.binance({'options': {'defaultType': 'spot'}})
     try:
         await exchange.load_markets()
+        
+        # --- PILAR 1: MACRO-FILTER (15-menit) ---
+        macro_bars = await exchange.fetch_ohlcv(SCALP_ASSET, timeframe='15m', limit=100)
+        df_macro = pd.DataFrame(macro_bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df_macro.ta.ema(length=50, append=True)
+        
+        last_macro_close = df_macro.iloc[-1]['close']
+        macro_ema_50 = df_macro.iloc[-1].get('EMA_50', 0)
 
+        if last_macro_close < macro_ema_50:
+            print(f"  [Sentinel] MACRO-FILTER BLOCK: Harga saat ini ({last_macro_close}) di bawah EMA 50 (15m) ({macro_ema_50:.2f}). Mode Beli dinonaktifkan.")
+            await exchange.close()
+            return
+
+        print(f"  [Sentinel] MACRO-FILTER PASS: Harga saat ini di atas EMA 50 (15m). Mode Beli diaktifkan.")
+
+        # --- Loop jika Macro-Filter Lolos ---
+        start_time = asyncio.get_event_loop().time()
         while (asyncio.get_event_loop().time() - start_time) < MAX_DURATION_SECONDS:
             bars = await exchange.fetch_ohlcv(SCALP_ASSET, timeframe='1m', limit=100)
             df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             
+            # Indikator Mikro (1-menit)
             df.ta.ema(length=9, append=True)
             df.ta.rsi(length=14, append=True)
+            df.ta.atr(length=14, append=True) # <<< Indikator Risiko Dinamis
 
-            if df.empty or len(df) < 2:
+            if df.empty or len(df) < 21: # Butuh 20 bar untuk rata-rata volume
                 await asyncio.sleep(CHECK_INTERVAL_SECONDS)
                 continue
 
             last = df.iloc[-1]
-            rsi = last.get('RSI_14', 50)
-            ema = last.get('EMA_9', 0)
+            last_volume = last['volume']
+            avg_volume = df['volume'].rolling(window=20).mean().iloc[-1]
             
-            # --- Logika Spring-Load ---
-            # 1. Muat pegas jika RSI jatuh di bawah 35
-            if rsi < 35:
-                spring_loaded = True
-            
-            # 2. Reset pegas jika momentum sudah terlalu tinggi untuk mencegah sinyal basi
-            if rsi > 60:
-                spring_loaded = False
+            print(f"  [Sentinel] Memeriksa {SCALP_ASSET}... RSI: {last.get('RSI_14', 0):.2f}, Volume: {last_volume:.0f} (Rata2: {avg_volume:.0f})")
 
-            print(f"  [Sentinel] Memeriksa {SCALP_ASSET}... Harga: {last['close']}, EMA_9: {ema:.2f}, RSI: {rsi:.2f} | Spring-Loaded: {spring_loaded}")
+            # --- KONDISI ENTRI BARU (DENGAN KEYAKINAN) ---
+            # Pilar 2 (Konfirmasi Volume) DAN Pilar 1 (Logic RSI/EMA)
+            is_volume_spike = last_volume > (avg_volume * 2.5)
+            is_bullish_cross = last['close'] > last.get('EMA_9', 0)
+            is_good_rsi = 40 < last.get('RSI_14', 0) < 65 # Sedikit melonggarkan syarat RSI
 
-            # --- Logika Entri "Release" ---
-            # Kondisi: Pegas HARUS sudah dimuat, DAN RSI baru saja kembali ke atas 35
-            if spring_loaded and rsi > 35 and last['close'] > ema:
-                
+            if is_volume_spike and is_bullish_cross and is_good_rsi:
                 entry_price = last['close']
-                take_profit = entry_price * (1 + TP_PERCENT)
-                stop_loss = entry_price * (1 - SL_PERCENT)
+                last_atr = last.get('ATR_14', 0)
+
+                if last_atr == 0: continue # Hindari pembagian dengan nol
+
+                # --- PILAR 3: MANAJEMEN RISIKO DINAMIS ---
+                stop_loss = entry_price - (last_atr * 1.5)
+                take_profit = entry_price + (last_atr * 2.5)
 
                 market_info = exchange.market(SCALP_ASSET)
-                price_precision = float(market_info['precision']['price'])
-                
-                decimal_places = 0
-                if 0 < price_precision < 1:
-                    decimal_places = int(abs(math.log10(price_precision)))
+                prec = market_info['precision']['price']
                 
                 signal_data = {
-                    "protocol": "Scalp", "symbol": SCALP_ASSET, "side": "BUY",
-                    "entry": f"{entry_price:.{decimal_places}f}",
-                    "tp1": f"{take_profit:.{decimal_places}f}",
-                    "sl": f"{stop_loss:.{decimal_places}f}",
-                    "confidence": 0.99, "source": "Spring-Load Protocol"
+                    "protocol": "Scalp_Conviction", "symbol": SCALP_ASSET, "side": "BUY",
+                    "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
+                    "confidence": last.get('RSI_14', 0), "source": "Conviction Protocol v5.7"
                 }
                 
                 await send_cornix_signal(signal_data)
-                print(f"  [Sentinel] Kondisi Spring-Load terpenuhi! Sinyal dikirim. Menghentikan sub-rutin.")
+                print(f"  [Sentinel] SINYAL KEYAKINAN DITEMUKAN! Volume Spike terdeteksi. Mengirim sinyal.")
                 break 
 
             await asyncio.sleep(CHECK_INTERVAL_SECONDS)
