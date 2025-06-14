@@ -1,4 +1,4 @@
-# gupf_brain_aws.py - VERSI 7.1 The Anomaly Hunter
+# gupf_brain_aws.py - VERSI 7.2 (Bifurcated Protocol)
 import numpy as np
 import math
 import os
@@ -28,7 +28,7 @@ CACHE_MAX_AGE_HOURS = 6
 async def execute_futures_scan_protocol():
     """Protokol Utama Pencari Alpha untuk Pasar Futures."""
     global FUTURES_SIGNAL_FOUND
-    print("🚀 Memulai GUPF v5.2 Protokol Pemindaian Futures...")
+    print("🚀 Memulai GUPF v7.2 Protokol Pemindaian Futures...")
     scan_list = await get_scan_list()
     
     exchange = ccxt.binance({'options': {'defaultType': 'future'}})
@@ -43,80 +43,99 @@ async def execute_futures_scan_protocol():
 
 async def analyze_spot_scalp_asset(symbol, exchange):
     """
-    ### EVOLUSI: v7.1 (Anomaly Hunter Protocol) ###
-    Menggunakan Z-Score dari Gaya (Force) untuk mendeteksi lonjakan anomali secara statistik.
+    ### EVOLUSI DEFINITIF: v7.2 (Bifurcated Protocol) ###
+    Menggunakan dua strategi berburu independen secara bersamaan:
+    1. Momentum Rider: Mengikuti tren makro dengan entri EMA crossover.
+    2. Anomaly Hunter: Mengabaikan tren, hanya memburu lonjakan Z-Score.
     """
     try:
-        # --- Pilar 1: Filter Konteks Makro GUPF (15m) ---
+        # --- Pengumpulan Data Universal ---
         macro_bars = await exchange.fetch_ohlcv(symbol, timeframe='15m', limit=100)
         df_macro = pd.DataFrame(macro_bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df_macro.ta.ema(length=50, append=True)
-        if df_macro.iloc[-1]['close'] < df_macro.iloc[-1].get('EMA_50', 0):
-            return None
-
-        # --- Pilar 2: Kalkulasi Fisika & Statistik (1m) ---
+        
         bars = await exchange.fetch_ohlcv(symbol, timeframe='1m', limit=100)
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+
+        if df.empty or len(df) < 22: return None
+
+        # --- Kalkulasi Indikator Universal ---
+        # Makro
+        df_macro.ta.ema(length=50, append=True)
+        # Mikro
+        df.ta.ema(length=5, append=True)
+        df.ta.ema(length=12, append=True)
+        df.ta.atr(length=14, append=True)
         
+        # Fisika
         v = df['close'].diff()
         a = v.diff()
         L = np.sqrt(df['volume'].replace(0, 1e-9))
         F = a * L
-        
-        # --- PERHITUNGAN Z-SCORE BARU ---
-        lookback_period = 20
-        # Rata-rata bergerak dari Gaya
-        F_mean = F.rolling(window=lookback_period).mean()
-        # Standar deviasi bergerak dari Gaya
-        F_std = F.rolling(window=lookback_period).std()
-        # Z-Score dari Gaya
+        F_mean = F.rolling(window=20).mean()
+        F_std = F.rolling(window=20).std()
         Z_score = (F - F_mean) / F_std
+        df['Z'] = Z_score
+
+        # Memastikan tidak ada nilai kosong setelah semua kalkulasi
+        if df.isnull().values.any() or df_macro.isnull().values.any():
+            return None
         
-        df['Z'] = Z_score # Tambahkan kolom Z-Score
-
-        if df.empty or len(df) < lookback_period + 2: return None
-        if df['Z'].isnull().all(): return None
-
         last = df.iloc[-1]
-        
-        # --- KONDISI ENTRI BERBASIS ANOMALI ---
-        FORCE_Z_SCORE_THRESHOLD = 2.5 # Ambang batas anomali (bisa disesuaikan)
-        
-        if last['Z'] > FORCE_Z_SCORE_THRESHOLD:
-            entry_price = last['close']
-            
-            # --- Pilar 3: Manajemen Risiko Dinamis GUPF (ATR) ---
-            df.ta.atr(length=14, append=True)
-            last_atr = df.iloc[-1].get('ATR_14', 0)
-            if last_atr == 0: return None
+        prev = df.iloc[-2]
 
-            stop_loss = entry_price - (last_atr * 1.5)
-            take_profit = entry_price + (last_atr * 2.5)
-            
-            market_info = exchange.market(symbol)
-            prec = market_info['precision']['price']
-            
-            # 'Keyakinan' sekarang adalah nilai Z-Score itu sendiri
-            confidence_score = last['Z']
-            
-            return {
-                "protocol": "Anomaly_Hunter", "symbol": symbol, "side": "BUY",
-                "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
-                "confidence": confidence_score, 
-                "source": "Anomaly Hunter v7.1"
-            }
+        # --- STRATEGI 1: MOMENTUM RIDER ---
+        is_macro_trend_up = df_macro.iloc[-1]['close'] > df_macro.iloc[-1].get('EMA_50', 0)
+        if is_macro_trend_up:
+            is_micro_cross = prev.get('EMA_5') < prev.get('EMA_12') and last.get('EMA_5') > last.get('EMA_12')
+            if is_micro_cross:
+                # Sinyal Ditemukan!
+                source_protocol = "Momentum Rider v7.2"
+                confidence_score = last.get('EMA_5') / last.get('EMA_12') # Rasio EMA sebagai keyakinan
+                entry_price = last['close']
+                last_atr = last.get('ATR_14', 0)
+                if last_atr > 0:
+                    stop_loss = entry_price - (last_atr * 1.5)
+                    take_profit = entry_price + (last_atr * 2.5)
+                    market_info = exchange.market(symbol)
+                    prec = market_info['precision']['price']
+                    return {
+                        "protocol": "Momentum_Rider", "symbol": symbol, "side": "BUY",
+                        "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
+                        "confidence": confidence_score, "source": source_protocol
+                    }
         
+        # --- STRATEGI 2: ANOMALY HUNTER ---
+        FORCE_Z_SCORE_THRESHOLD = 2.8 # Sedikit menaikkan threshold untuk sinyal yang lebih kuat
+        if last['Z'] > FORCE_Z_SCORE_THRESHOLD:
+            # Sinyal Ditemukan!
+            source_protocol = "Anomaly Hunter v7.2"
+            confidence_score = last['Z']
+            entry_price = last['close']
+            last_atr = last.get('ATR_14', 0)
+            if last_atr > 0:
+                stop_loss = entry_price - (last_atr * 1.5)
+                take_profit = entry_price + (last_atr * 2.5)
+                market_info = exchange.market(symbol)
+                prec = market_info['precision']['price']
+                return {
+                    "protocol": "Anomaly_Hunter", "symbol": symbol, "side": "BUY",
+                    "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
+                    "confidence": confidence_score, "source": source_protocol
+                }
+
+        # Jika tidak ada strategi yang terpicu
         return None
+        
     except Exception as e:
-        print(f"  [Analisis Anomali] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
+        print(f"  [Analisis v7.2] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
         return None
 
 async def execute_scalp_fleet_protocol():
     """
-    ### EVOLUSI: v7.1 (The Anomaly Hunter) ###
+    ### EVOLUSI: v7.2 (Bifurcated Protocol) ###
     Memindai banyak aset spot dan mengeksekusi 5 sinyal terbaik.
     """
-    print("💡 Memulai Protokol Armada Scalp v7.1...") # Ubah v5.9 menjadi v7.1
+    print("💡 Memulai Protokol Armada Scalp v7.2...") # Ubah v5.9 menjadi v7.1
     
     # 1. Mendapatkan daftar target yang sama dengan futures
     scan_list = await get_scan_list()
@@ -264,14 +283,14 @@ async def get_scan_list():
 # --- MASTER LAMBDA HANDLER ---
 def handler(event, context):
     """
-    ### HANDLER FINAL untuk v7.1 ###
+    ### HANDLER FINAL untuk v7.2 ###
     Papan sirkuit utama GUPF, terhubung ke mesin fisika.
     """
     global FUTURES_SIGNAL_FOUND
     FUTURES_SIGNAL_FOUND = False
     
     # Versi untuk logging yang jelas
-    version = "7.1"
+    version = "7.2"
     print(f"GUPF v({version}) berjalan dalam mode: {GUPF_OPERATING_MODE}")
 
     if GUPF_OPERATING_MODE == "SCALP_ONLY":
