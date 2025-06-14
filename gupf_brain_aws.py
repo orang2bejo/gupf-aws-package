@@ -1,4 +1,4 @@
-# gupf_brain_aws.py - VERSI 5.7 The Conviction Protocol
+# gupf_brain_aws.py - VERSI 5.9 The Scalp Fleet Protocol
 import math
 import os
 import ccxt.async_support as ccxt
@@ -39,23 +39,18 @@ async def execute_futures_scan_protocol():
     print("✅ Protokol Pemindaian Futures Selesai.")
 
 # GANTI FUNGSI LAMA DENGAN YANG INI
-async def execute_spot_scalp_subroutine():
-    """
-    ### EVOLUSI: v5.7 (Conviction Protocol) ###
-    Sub-rutin yang di-upgrade dengan Macro-Filter, Konfirmasi Volume, dan Risiko Dinamis.
-    """
-    print("💡 Memulai Protokol Sentinel v5.7 (Conviction)...")
-    
-    SCALP_ASSET = 'BNB/USDT'
-    MAX_DURATION_SECONDS = 270
-    CHECK_INTERVAL_SECONDS = 20 # Sedikit lebih lama untuk mengakomodasi 2 panggilan API
+# HAPUS FUNGSI execute_spot_scalp_subroutine YANG LAMA
+# DAN GANTI DENGAN DUA FUNGSI BARU INI
 
-    exchange = ccxt.binance({'options': {'defaultType': 'spot'}})
+async def analyze_spot_scalp_asset(symbol, exchange):
+    """
+    ### BARU v5.9 ###
+    Menganalisis satu aset spot untuk menemukan sinyal scalping yang valid.
+    Mengembalikan dictionary sinyal jika valid, atau None jika tidak.
+    """
     try:
-        await exchange.load_markets()
-        
-        # --- PILAR 1: MACRO-FILTER (15-menit) ---
-        macro_bars = await exchange.fetch_ohlcv(SCALP_ASSET, timeframe='15m', limit=100)
+        # --- Pilar 1: Filter Makro (15m) ---
+        macro_bars = await exchange.fetch_ohlcv(symbol, timeframe='15m', limit=100)
         df_macro = pd.DataFrame(macro_bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df_macro.ta.ema(length=50, append=True)
         
@@ -63,69 +58,94 @@ async def execute_spot_scalp_subroutine():
         macro_ema_50 = df_macro.iloc[-1].get('EMA_50', 0)
 
         if last_macro_close < macro_ema_50:
-            print(f"  [Sentinel] MACRO-FILTER BLOCK: Harga saat ini ({last_macro_close}) di bawah EMA 50 (15m) ({macro_ema_50:.2f}). Mode Beli dinonaktifkan.")
-            await exchange.close()
+            return None # Blok jika tren makro turun
+
+        # --- Analisis Mikro (1m) ---
+        bars = await exchange.fetch_ohlcv(symbol, timeframe='1m', limit=100)
+        df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        
+        df.ta.ema(length=9, append=True)
+        df.ta.rsi(length=14, append=True)
+        df.ta.atr(length=14, append=True)
+
+        if df.empty or len(df) < 21:
+            return None
+
+        last = df.iloc[-1]
+        last_volume = last['volume']
+        avg_volume = df['volume'].rolling(window=20).mean().iloc[-1]
+        
+        # --- Kondisi Entri dengan Keyakinan ---
+        is_volume_spike = last_volume > (avg_volume * 2.5)
+        is_bullish_cross = last['close'] > last.get('EMA_9', 0)
+        rsi_value = last.get('RSI_14', 0)
+        is_good_rsi = 40 < rsi_value < 65
+
+        if is_volume_spike and is_bullish_cross and is_good_rsi:
+            entry_price = last['close']
+            last_atr = last.get('ATR_14', 0)
+            if last_atr == 0: return None
+
+            stop_loss = entry_price - (last_atr * 1.5)
+            take_profit = entry_price + (last_atr * 2.5)
+            
+            market_info = exchange.market(symbol)
+            prec = market_info['precision']['price']
+            
+            return {
+                "protocol": "Scalp_Fleet", "symbol": symbol, "side": "BUY",
+                "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
+                # 'Keyakinan' sekarang adalah nilai RSI itu sendiri untuk tujuan pengurutan
+                "confidence": rsi_value, 
+                "source": "Scalp Fleet Protocol v5.9"
+            }
+        
+        return None
+    except Exception as e:
+        print(f"  [Analisis Scalp] Gagal menganalisis {symbol}: {e}")
+        return None
+
+async def execute_scalp_fleet_protocol():
+    """
+    ### EVOLUSI: v5.9 (Scalp Fleet Protocol) ###
+    Memindai banyak aset spot dan mengeksekusi 5 sinyal terbaik.
+    """
+    print("💡 Memulai Protokol Armada Scalp v5.9...")
+    
+    # 1. Mendapatkan daftar target yang sama dengan futures
+    scan_list = await get_scan_list()
+    print(f"  [Armada Scalp] {len(scan_list)} target teridentifikasi untuk dianalisis.")
+
+    candidate_signals = []
+    exchange = ccxt.binance({'options': {'defaultType': 'spot'}})
+    try:
+        await exchange.load_markets()
+        
+        # 2. Menganalisis semua target secara bersamaan
+        tasks = [analyze_spot_scalp_asset(symbol, exchange) for symbol in scan_list.keys()]
+        results = await asyncio.gather(*tasks)
+        
+        # 3. Mengumpulkan kandidat yang valid (bukan None)
+        candidate_signals = [res for res in results if res is not None]
+        
+        if not candidate_signals:
+            print("  [Armada Scalp] Tidak ada sinyal scalping yang memenuhi syarat ditemukan di seluruh pasar.")
             return
 
-        print(f"  [Sentinel] MACRO-FILTER PASS: Harga saat ini di atas EMA 50 (15m). Mode Beli diaktifkan.")
-
-        # --- Loop jika Macro-Filter Lolos ---
-        start_time = asyncio.get_event_loop().time()
-        while (asyncio.get_event_loop().time() - start_time) < MAX_DURATION_SECONDS:
-            bars = await exchange.fetch_ohlcv(SCALP_ASSET, timeframe='1m', limit=100)
-            df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        # 4. Mengurutkan kandidat berdasarkan skor keyakinan (RSI)
+        sorted_signals = sorted(candidate_signals, key=lambda x: x['confidence'], reverse=True)
+        print(f"  [Armada Scalp] {len(sorted_signals)} sinyal kandidat ditemukan. Memilih 5 terbaik...")
+        
+        # 5. Mengeksekusi 5 sinyal teratas
+        for signal in sorted_signals[:5]:
+            await send_cornix_signal(signal)
             
-            # Indikator Mikro (1-menit)
-            df.ta.ema(length=9, append=True)
-            df.ta.rsi(length=14, append=True)
-            df.ta.atr(length=14, append=True) # <<< Indikator Risiko Dinamis
-
-            if df.empty or len(df) < 21: # Butuh 20 bar untuk rata-rata volume
-                await asyncio.sleep(CHECK_INTERVAL_SECONDS)
-                continue
-
-            last = df.iloc[-1]
-            last_volume = last['volume']
-            avg_volume = df['volume'].rolling(window=20).mean().iloc[-1]
-            
-            print(f"  [Sentinel] Memeriksa {SCALP_ASSET}... RSI: {last.get('RSI_14', 0):.2f}, Volume: {last_volume:.0f} (Rata2: {avg_volume:.0f})")
-
-            # --- KONDISI ENTRI BARU (DENGAN KEYAKINAN) ---
-            # Pilar 2 (Konfirmasi Volume) DAN Pilar 1 (Logic RSI/EMA)
-            is_volume_spike = last_volume > (avg_volume * 2.5)
-            is_bullish_cross = last['close'] > last.get('EMA_9', 0)
-            is_good_rsi = 40 < last.get('RSI_14', 0) < 65 # Sedikit melonggarkan syarat RSI
-
-            if is_volume_spike and is_bullish_cross and is_good_rsi:
-                entry_price = last['close']
-                last_atr = last.get('ATR_14', 0)
-
-                if last_atr == 0: continue # Hindari pembagian dengan nol
-
-                # --- PILAR 3: MANAJEMEN RISIKO DINAMIS ---
-                stop_loss = entry_price - (last_atr * 1.5)
-                take_profit = entry_price + (last_atr * 2.5)
-
-                market_info = exchange.market(SCALP_ASSET)
-                prec = market_info['precision']['price']
-                
-                signal_data = {
-                    "protocol": "Scalp_Conviction", "symbol": SCALP_ASSET, "side": "BUY",
-                    "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
-                    "confidence": last.get('RSI_14', 0), "source": "Conviction Protocol v5.7"
-                }
-                
-                await send_cornix_signal(signal_data)
-                print(f"  [Sentinel] SINYAL KEYAKINAN DITEMUKAN! Volume Spike terdeteksi. Mengirim sinyal.")
-                break 
-
-            await asyncio.sleep(CHECK_INTERVAL_SECONDS)
     except Exception as e:
-        print(f"🔴 ERROR dalam Protokol Sentinel: {e}")
+        print(f"🔴 ERROR dalam Protokol Armada Scalp: {e}")
         traceback.print_exc()
     finally:
         await exchange.close()
-    print("✅ Protokol Sentinel Selesai.")
+    print("✅ Protokol Armada Scalp Selesai.")
 
 
 # --- (Fungsi inti dan pembantu lainnya TIDAK BERUBAH dari v5.1) ---
@@ -248,7 +268,7 @@ def handler(event, context):
     else: # Mode default adalah FUTURES
         asyncio.run(execute_futures_scan_protocol())
         if not FUTURES_SIGNAL_FOUND:
-            asyncio.run(execute_spot_scalp_subroutine())
+            asyncio.run(execute_scalp_fleet_protocol())
         else:
             print("✅ Sinyal Futures ditemukan. Melewati Protokol Sentinel.")
     
