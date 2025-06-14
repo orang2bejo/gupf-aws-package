@@ -1,4 +1,5 @@
-# gupf_brain_aws.py - VERSI 5.9 The Scalp Fleet Protocol
+# gupf_brain_aws.py - VERSI 7.0 (Physics-Hybrid Protocol)
+import numpy as np
 import math
 import os
 import ccxt.async_support as ccxt
@@ -42,48 +43,49 @@ async def execute_futures_scan_protocol():
 
 async def analyze_spot_scalp_asset(symbol, exchange):
     """
-    ### EVOLUSI: v6.1 (Time-Aware Protocol) ###
-    Menganalisis satu aset spot dengan memperbaiki masalah kesadaran waktu (DatetimeIndex).
+    ### EVOLUSI: v7.0 (Physics-Hybrid Protocol) ###
+    Menggunakan kalkulasi Gaya (Force) dari EMA-X sebagai pemicu entri,
+    dipadukan dengan filter makro dan manajemen risiko dinamis dari GUPF.
     """
     try:
-        # --- Analisis Mikro (1m) ---
+        # --- Pilar 1: Filter Konteks Makro GUPF (15m) ---
+        macro_bars = await exchange.fetch_ohlcv(symbol, timeframe='15m', limit=100)
+        df_macro = pd.DataFrame(macro_bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df_macro.ta.ema(length=50, append=True)
+        if df_macro.iloc[-1]['close'] < df_macro.iloc[-1].get('EMA_50', 0):
+            return None # Blok jika tren makro turun
+
+        # --- Pilar 2: Kalkulasi Fisika EMA-X (1m) ---
         bars = await exchange.fetch_ohlcv(symbol, timeframe='1m', limit=100)
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         
-        # ### PERBAIKAN KRITIS v6.1 ###
-        # Mengubah kolom 'timestamp' (dalam milidetik) menjadi DatetimeIndex yang benar.
-        # Ini mengaktifkan "kesadaran waktu" pada GUPF.
-        df.set_index(pd.to_datetime(df['timestamp'], unit='ms'), inplace=True)
+        # Kecepatan (v): Perubahan harga dari candle sebelumnya
+        v = df['close'].diff()
+        # Percepatan (a): Perubahan kecepatan
+        a = v.diff()
+        # Massa (L): Proxy likuiditas (mengatasi nilai volume 0 untuk mencegah error)
+        L = np.sqrt(df['volume'].replace(0, 1e-9)) # Ganti 0 dengan nilai sangat kecil
+        # Gaya (F): Gabungan dari percepatan dan massa
+        F = a * L
+        
+        df['F'] = F # Tambahkan kolom Gaya ke DataFrame
 
-        if df.empty:
-            return None
-
-        # ### INDIKATOR BARU v6.0 ###
-        df.ta.ema(length=5, append=True)
-        df.ta.ema(length=12, append=True)
-        # Sekarang VWAP akan bekerja dengan benar karena sudah ada DatetimeIndex
-        df.ta.vwap(length=14, append=True) 
-
-        # Memastikan tidak ada nilai kosong setelah kalkulasi
-        if df.isnull().values.any():
-            return None
+        if df.empty or len(df) < 5: return None
+        if df['F'].isnull().all(): return None
 
         last = df.iloc[-1]
-        prev = df.iloc[-2]
         
-        # --- KONDISI ENTRI BARU (VWAP MOMENTUM) ---
-        ema_5 = last.get('EMA_5')
-        ema_12 = last.get('EMA_12')
-        vwap = last.get('VWAP_14')
-        prev_ema_5 = prev.get('EMA_5')
-        prev_ema_12 = prev.get('EMA_12')
+        # --- Kondisi Entri: Deteksi Lonjakan Gaya ---
+        highest_F_lookback = df['F'].rolling(window=3).max().shift(1).iloc[-1]
+        
+        F_threshold = 0.0 # Ambang batas minimal agar tidak dipicu oleh noise
+        
+        is_force_spike = last['F'] > highest_F_lookback and last['F'] > F_threshold
 
-        is_bullish_cross = prev_ema_5 < prev_ema_12 and ema_5 > ema_12
-        is_above_vwap = last['close'] > vwap
-        
-        if is_bullish_cross and is_above_vwap:
+        if is_force_spike:
             entry_price = last['close']
             
+            # --- Pilar 3: Manajemen Risiko Dinamis GUPF (ATR) ---
             df.ta.atr(length=14, append=True)
             last_atr = df.iloc[-1].get('ATR_14', 0)
             if last_atr == 0: return None
@@ -94,19 +96,18 @@ async def analyze_spot_scalp_asset(symbol, exchange):
             market_info = exchange.market(symbol)
             prec = market_info['precision']['price']
             
-            confidence_score = (last['close'] / vwap) 
+            confidence_score = last['F']
             
             return {
-                "protocol": "VWAP_Momentum", "symbol": symbol, "side": "BUY",
+                "protocol": "Physics_Hybrid", "symbol": symbol, "side": "BUY",
                 "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
                 "confidence": confidence_score, 
-                "source": "VWAP Momentum v6.1"
+                "source": "Physics Hybrid v7.0"
             }
         
         return None
     except Exception as e:
-        # Mencetak pesan error yang lebih informatif
-        print(f"  [Analisis VWAP] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
+        print(f"  [Analisis Fisika] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
         return None
 
 async def execute_scalp_fleet_protocol():
@@ -262,22 +263,24 @@ async def get_scan_list():
 # --- MASTER LAMBDA HANDLER ---
 def handler(event, context):
     """
-    ### PERBAIKAN WAJIB (v5.9.1) ###
-    Memperbaiki NameError dengan memanggil nama fungsi yang benar.
+    ### HANDLER FINAL untuk v7.0 ###
+    Papan sirkuit utama GUPF, terhubung ke mesin fisika.
     """
     global FUTURES_SIGNAL_FOUND
     FUTURES_SIGNAL_FOUND = False
     
-    version = "5.9.1"
+    # Versi untuk logging yang jelas
+    version = "7.0"
     print(f"GUPF v({version}) berjalan dalam mode: {GUPF_OPERATING_MODE}")
 
     if GUPF_OPERATING_MODE == "SCALP_ONLY":
-        # Memanggil nama fungsi yang baru dan benar
+        # Memanggil protokol armada scalp yang benar (yang sekarang berisi logika fisika)
         asyncio.run(execute_scalp_fleet_protocol())
     else:
+        # Mode default: pindai futures, jika tidak ada, pindai spot
         asyncio.run(execute_futures_scan_protocol())
         if not FUTURES_SIGNAL_FOUND:
-            # Memanggil nama fungsi yang baru dan benar
+            print("  [Handler] Sinyal futures tidak ditemukan. Beralih ke Protokol Armada Scalp.")
             asyncio.run(execute_scalp_fleet_protocol())
         else:
             print("✅ Sinyal Futures ditemukan. Melewati Protokol Armada Scalp.")
