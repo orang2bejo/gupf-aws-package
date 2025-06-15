@@ -1,4 +1,4 @@
-# gupf_brain_aws.py - VERSI 8.1 (The Tuned Hybrid Pro)
+# gupf_brain_aws.py - VERSI 8.2 (The Adaptive Protocol)
 import numpy as np
 import math
 import os
@@ -28,7 +28,7 @@ CACHE_MAX_AGE_HOURS = 6
 async def execute_futures_scan_protocol():
     """Protokol Utama Pencari Alpha untuk Pasar Futures."""
     global FUTURES_SIGNAL_FOUND
-    print("🚀 Memulai GUPF v8.1 Protokol Pemindaian Futures...")
+    print("🚀 Memulai GUPF v8.2 Protokol Pemindaian Futures...")
     scan_list = await get_scan_list()
     
     exchange = ccxt.binance({'options': {'defaultType': 'future'}})
@@ -43,43 +43,61 @@ async def execute_futures_scan_protocol():
 
 async def analyze_spot_scalp_asset(symbol, exchange):
     """
-    ### EVOLUSI PENYETELAN: v8.1 (The Tuned Hybrid Pro) ###
-    Menggunakan filter tren yang lebih responsif dan pemicu entri yang lebih sensitif.
+    ### EVOLUSI ADAPTIF: v8.2 (The Adaptive Protocol) ###
+    Secara cerdas memilih antara strategi "Buy The Dip" dan "Buy The Breakout"
+    berdasarkan kondisi tren pasar saat ini.
     """
     try:
-        # --- LANGKAH 1: FILTER TREN (Timeframe: 15 Menit, EMA 100) ---
+        # --- LANGKAH 1: PENGUMPULAN DATA & KALKULASI UNIVERSAL ---
         macro_bars = await exchange.fetch_ohlcv(symbol, timeframe='15m', limit=110)
-        if len(macro_bars) < 101: return None # Butuh data yang cukup untuk EMA 100
+        bars = await exchange.fetch_ohlcv(symbol, timeframe='5m', limit=100)
+        
+        if len(macro_bars) < 101 or len(bars) < 15: return None
         
         df_macro = pd.DataFrame(macro_bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        # Menggunakan EMA 100 untuk tren yang lebih responsif
         df_macro.ta.ema(length=100, append=True)
-
-        if df_macro.isnull().values.any(): return None
-        
-        last_macro = df_macro.iloc[-1]
-        is_uptrend = last_macro['close'] > last_macro.get('EMA_100', float('inf'))
-
-        if not is_uptrend:
-            return None
-
-        # --- LANGKAH 2: SINYAL ENTRI (Timeframe: 5 Menit, RSI < 40) ---
-        # Menggunakan timeframe 5 menit untuk sinyal yang lebih jernih
-        bars = await exchange.fetch_ohlcv(symbol, timeframe='5m', limit=100)
-        if len(bars) < 15: return None
 
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df.ta.rsi(length=14, append=True)
         df.ta.atr(length=14, append=True)
 
-        if df.isnull().values.any(): return None
+        if df.isnull().values.any() or df_macro.isnull().values.any(): return None
         
-        last = df.iloc[-1]
+        last = df.iloc[-1]; prev = df.iloc[-2]
+        last_macro = df_macro.iloc[-1]
         
-        # Menggunakan ambang batas RSI 40 yang lebih sensitif
-        RSI_OVERSOLD_THRESHOLD = 40.0
+        # --- LANGKAH 2: IDENTIFIKASI KONDISI PASAR ---
+        current_price = last_macro['close']
+        ema_100 = last_macro.get('EMA_100', 0)
+        if ema_100 == 0: return None
+
+        # Tentukan zona netral di sekitar EMA
+        upper_neutral_band = ema_100 * 1.0075
+        lower_neutral_band = ema_100 * 0.9925
+
+        signal_found = None
+
+        # --- LANGKAH 3: PILIH STRATEGI YANG TEPAT ---
+        # MODE 1: Pasar dalam Tren Naik Kuat -> "Buy The Dip"
+        if current_price > upper_neutral_band:
+            RSI_OVERSOLD_THRESHOLD = 40.0
+            if last.get('RSI_14', 100) < RSI_OVERSOLD_THRESHOLD:
+                signal_found = {
+                    "source": f"BuyTheDip v8.2 (RSI: {last.get('RSI_14'):.2f})",
+                    "confidence": 100 - last.get('RSI_14')
+                }
+
+        # MODE 2: Pasar Ranging/Netral -> "Buy The Breakout"
+        elif current_price > lower_neutral_band:
+            RSI_BREAKOUT_LEVEL = 50.0
+            if prev.get('RSI_14', 100) < RSI_BREAKOUT_LEVEL and last.get('RSI_14', 0) > RSI_BREAKOUT_LEVEL:
+                signal_found = {
+                    "source": f"BuyTheBreakout v8.2 (RSI: {last.get('RSI_14'):.2f})",
+                    "confidence": last.get('RSI_14')
+                }
         
-        if last.get('RSI_14', 100) < RSI_OVERSOLD_THRESHOLD:
+        # Jika sebuah sinyal ditemukan oleh salah satu mode di atas
+        if signal_found:
             entry_price = last['close']
             last_atr = last.get('ATR_14', 0)
             if last_atr == 0: return None
@@ -90,27 +108,26 @@ async def analyze_spot_scalp_asset(symbol, exchange):
             market_info = exchange.market(symbol)
             prec = market_info['precision']['price']
             
-            confidence_score = 100 - last.get('RSI_14')
-            
             return {
-                "protocol": "Tuned_Hybrid_Pro", "symbol": symbol, "side": "BUY",
+                "protocol": "Adaptive_Hybrid_Pro", "symbol": symbol, "side": "BUY",
                 "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
-                "confidence": confidence_score, 
-                "source": f"Tuned Hybrid v8.1 (RSI: {last.get('RSI_14'):.2f})"
+                "confidence": signal_found['confidence'], 
+                "source": signal_found['source']
             }
         
+        # Jika tidak ada mode yang cocok atau tidak ada sinyal yang terpicu
         return None
         
     except Exception as e:
-        print(f"  [Analisis v8.1] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
+        print(f"  [Analisis v8.2] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
         return None
 
 async def execute_scalp_fleet_protocol():
     """
-    ### EVOLUSI: v8.1 (The Tuned Hybrid Pro) ###
+    ### EVOLUSI: v8.2 (The Adaptive Protocol) ###
     Memindai banyak aset spot dan mengeksekusi 5 sinyal terbaik.
     """
-    print("💡 Memulai Protokol Armada Scalp v8.1...") # Ubah v5.9 menjadi v7.1
+    print("💡 Memulai Protokol Armada Scalp v8.2...") # Ubah v5.9 menjadi v7.1
     
     # 1. Mendapatkan daftar target yang sama dengan futures
     scan_list = await get_scan_list()
@@ -258,14 +275,14 @@ async def get_scan_list():
 # --- MASTER LAMBDA HANDLER ---
 def handler(event, context):
     """
-    ### HANDLER FINAL untuk v8.1 ###
+    ### HANDLER FINAL untuk v8.2 ###
     Papan sirkuit utama GUPF, terhubung ke mesin fisika.
     """
     global FUTURES_SIGNAL_FOUND
     FUTURES_SIGNAL_FOUND = False
     
     # Versi untuk logging yang jelas
-    version = "8.1"
+    version = "8.2"
     print(f"GUPF v({version}) berjalan dalam mode: {GUPF_OPERATING_MODE}")
 
     if GUPF_OPERATING_MODE == "SCALP_ONLY":
