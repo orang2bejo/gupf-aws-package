@@ -1,4 +1,4 @@
-# gupf_brain_aws.py - VERSI 8.2 (The Adaptive Protocol)
+# gupf_brain_aws.py - VERSI 8.3 (THE MARKET INTELLIGENCE PROTOCOL)
 import numpy as np
 import math
 import os
@@ -43,12 +43,11 @@ async def execute_futures_scan_protocol():
 
 async def analyze_spot_scalp_asset(symbol, exchange):
     """
-    ### EVOLUSI ADAPTIF: v8.2 (The Adaptive Protocol) ###
-    Secara cerdas memilih antara strategi "Buy The Dip" dan "Buy The Breakout"
-    berdasarkan kondisi tren pasar saat ini.
+    ### EVOLUSI KECERDASAN: v8.3 (Market Intelligence) ###
+    Menganalisis dan MENGKATEGORIKAN setiap aset, tidak hanya mencari sinyal.
+    Mengembalikan dictionary status yang lebih kaya.
     """
     try:
-        # --- LANGKAH 1: PENGUMPULAN DATA & KALKULASI UNIVERSAL ---
         macro_bars = await exchange.fetch_ohlcv(symbol, timeframe='15m', limit=110)
         bars = await exchange.fetch_ohlcv(symbol, timeframe='5m', limit=100)
         
@@ -66,96 +65,99 @@ async def analyze_spot_scalp_asset(symbol, exchange):
         last = df.iloc[-1]; prev = df.iloc[-2]
         last_macro = df_macro.iloc[-1]
         
-        # --- LANGKAH 2: IDENTIFIKASI KONDISI PASAR ---
         current_price = last_macro['close']
         ema_100 = last_macro.get('EMA_100', 0)
         if ema_100 == 0: return None
 
-        # Tentukan zona netral di sekitar EMA
         upper_neutral_band = ema_100 * 1.0075
         lower_neutral_band = ema_100 * 0.9925
 
-        signal_found = None
-
-        # --- LANGKAH 3: PILIH STRATEGI YANG TEPAT ---
-        # MODE 1: Pasar dalam Tren Naik Kuat -> "Buy The Dip"
+        # MODE 1: Pasar dalam Tren Naik Kuat -> Cari sinyal "Buy The Dip"
         if current_price > upper_neutral_band:
-            RSI_OVERSOLD_THRESHOLD = 40.0
-            if last.get('RSI_14', 100) < RSI_OVERSOLD_THRESHOLD:
-                signal_found = {
-                    "source": f"BuyTheDip v8.2 (RSI: {last.get('RSI_14'):.2f})",
-                    "confidence": 100 - last.get('RSI_14')
+            if last.get('RSI_14', 100) < 40.0:
+                # SINYAL DITEMUKAN
+                entry_price, last_atr = last['close'], last.get('ATR_14', 0)
+                if last_atr == 0: return {'type': 'status', 'status': 'Uptrend', 'symbol': symbol} # Fallback jika ATR 0
+                
+                return {
+                    "type": "signal",
+                    "data": {
+                        "protocol": "Adaptive_Hybrid_Pro", "symbol": symbol, "side": "BUY",
+                        "entry": f"{entry_price:.{exchange.market(symbol)['precision']['price']}f}",
+                        "tp1": f"{entry_price + (last_atr * 2.5):.{exchange.market(symbol)['precision']['price']}f}",
+                        "sl": f"{entry_price - (last_atr * 1.5):.{exchange.market(symbol)['precision']['price']}f}",
+                        "confidence": 100 - last.get('RSI_14'), "source": f"BuyTheDip v8.3 (RSI: {last.get('RSI_14'):.2f})"
+                    }
                 }
+            else: # Tidak ada sinyal, tapi tetap laporkan status
+                return {'type': 'status', 'status': 'Uptrend', 'symbol': symbol}
 
-        # MODE 2: Pasar Ranging/Netral -> "Buy The Breakout"
+        # MODE 2: Pasar Ranging/Netral -> Cari sinyal "Buy The Breakout"
         elif current_price > lower_neutral_band:
-            RSI_BREAKOUT_LEVEL = 50.0
-            if prev.get('RSI_14', 100) < RSI_BREAKOUT_LEVEL and last.get('RSI_14', 0) > RSI_BREAKOUT_LEVEL:
-                signal_found = {
-                    "source": f"BuyTheBreakout v8.2 (RSI: {last.get('RSI_14'):.2f})",
-                    "confidence": last.get('RSI_14')
-                }
-        
-        # Jika sebuah sinyal ditemukan oleh salah satu mode di atas
-        if signal_found:
-            entry_price = last['close']
-            last_atr = last.get('ATR_14', 0)
-            if last_atr == 0: return None
+            if prev.get('RSI_14', 100) < 50.0 and last.get('RSI_14', 0) > 50.0:
+                # SINYAL DITEMUKAN
+                entry_price, last_atr = last['close'], last.get('ATR_14', 0)
+                if last_atr == 0: return {'type': 'status', 'status': 'Ranging', 'symbol': symbol} # Fallback jika ATR 0
 
-            stop_loss = entry_price - (last_atr * 1.5)
-            take_profit = entry_price + (last_atr * 2.5)
-            
-            market_info = exchange.market(symbol)
-            prec = market_info['precision']['price']
-            
-            return {
-                "protocol": "Adaptive_Hybrid_Pro", "symbol": symbol, "side": "BUY",
-                "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
-                "confidence": signal_found['confidence'], 
-                "source": signal_found['source']
-            }
+                return {
+                    "type": "signal",
+                    "data": {
+                        "protocol": "Adaptive_Hybrid_Pro", "symbol": symbol, "side": "BUY",
+                        "entry": f"{entry_price:.{exchange.market(symbol)['precision']['price']}f}",
+                        "tp1": f"{entry_price + (last_atr * 2.5):.{exchange.market(symbol)['precision']['price']}f}",
+                        "sl": f"{entry_price - (last_atr * 1.5):.{exchange.market(symbol)['precision']['price']}f}",
+                        "confidence": last.get('RSI_14'), "source": f"BuyTheBreakout v8.3 (RSI: {last.get('RSI_14'):.2f})"
+                    }
+                }
+            else: # Tidak ada sinyal, tapi tetap laporkan status
+                return {'type': 'status', 'status': 'Ranging', 'symbol': symbol}
         
-        # Jika tidak ada mode yang cocok atau tidak ada sinyal yang terpicu
-        return None
-        
+        # MODE 3: Pasar dalam Tren Turun -> Laporkan dan Abaikan
+        else:
+            return {'type': 'status', 'status': 'Downtrend', 'symbol': symbol}
+
     except Exception as e:
-        print(f"  [Analisis v8.2] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
+        print(f"  [Analisis v8.3] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
         return None
 
 async def execute_scalp_fleet_protocol():
     """
-    ### EVOLUSI: v8.2 (The Adaptive Protocol) ###
-    Memindai banyak aset spot dan mengeksekusi 5 sinyal terbaik.
+    ### EVOLUSI KECERDASAN: v8.3 ###
+    Mengumpulkan status dari semua aset, lalu memutuskan antara mengirim
+    sinyal trading atau laporan intelijen pasar.
     """
-    print("💡 Memulai Protokol Armada Scalp v8.2...") # Ubah v5.9 menjadi v7.1
+    print("💡 Memulai Protokol Armada Scalp v8.3...")
     
-    # 1. Mendapatkan daftar target yang sama dengan futures
     scan_list = await get_scan_list()
     print(f"  [Armada Scalp] {len(scan_list)} target teridentifikasi untuk dianalisis.")
 
-    candidate_signals = []
+    trade_signals = []
+    market_statuses = {"Uptrend": [], "Ranging": [], "Downtrend": []}
+    
     exchange = ccxt.binance({'options': {'defaultType': 'spot'}})
     try:
         await exchange.load_markets()
         
-        # 2. Menganalisis semua target secara bersamaan
         tasks = [analyze_spot_scalp_asset(symbol, exchange) for symbol in scan_list.keys()]
         results = await asyncio.gather(*tasks)
         
-        # 3. Mengumpulkan kandidat yang valid (bukan None)
-        candidate_signals = [res for res in results if res is not None]
+        # Memilah hasil menjadi sinyal atau status
+        for res in results:
+            if res is None: continue
+            if res['type'] == 'signal':
+                trade_signals.append(res['data'])
+            elif res['type'] == 'status':
+                market_statuses[res['status']].append(res['symbol'])
         
-        if not candidate_signals:
-            print("  [Armada Scalp] Tidak ada sinyal scalping yang memenuhi syarat ditemukan di seluruh pasar.")
-            return
-
-        # 4. Mengurutkan kandidat berdasarkan skor keyakinan (RSI)
-        sorted_signals = sorted(candidate_signals, key=lambda x: x['confidence'], reverse=True)
-        print(f"  [Armada Scalp] {len(sorted_signals)} sinyal kandidat ditemukan. Memilih 5 terbaik...")
-        
-        # 5. Mengeksekusi 5 sinyal teratas
-        for signal in sorted_signals[:5]:
-            await send_cornix_signal(signal)
+        # LOGIKA KEPUTUSAN UTAMA
+        if trade_signals:
+            print(f"  [Armada Scalp] {len(trade_signals)} sinyal kandidat ditemukan. Memilih yang terbaik...")
+            sorted_signals = sorted(trade_signals, key=lambda x: x['confidence'], reverse=True)
+            for signal in sorted_signals[:3]: # Mengirim maksimal 3 sinyal terbaik
+                await send_cornix_signal(signal)
+        else:
+            print("  [Armada Scalp] Tidak ada sinyal trading ditemukan. Menyusun Laporan Intelijen...")
+            await send_intelligence_report(market_statuses)
             
     except Exception as e:
         print(f"🔴 ERROR dalam Protokol Armada Scalp: {e}")
@@ -271,18 +273,45 @@ async def get_scan_list():
     for t in sorted(ticker_list, key=lambda x: x['percentage'])[:10]: scan_list[t['symbol']] = "Top Loser"
     for t in sorted(ticker_list, key=lambda x: x['quoteVolume'], reverse=True)[:10]: scan_list[t['symbol']] = "Top Volume"
     return scan_list
+    
+# FUNGSI BARU v8.3
+async def send_intelligence_report(statuses):
+    """Menyusun dan mengirim laporan intelijen pasar jika tidak ada sinyal."""
+    bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
+    
+    uptrend_assets = statuses.get("Uptrend", [])
+    ranging_assets = statuses.get("Ranging", [])
+    downtrend_assets = statuses.get("Downtrend", [])
+    
+    total_assets = len(uptrend_assets) + len(ranging_assets) + len(downtrend_assets)
+    
+    # Membuat daftar aset yang lebih rapi
+    def format_asset_list(asset_list):
+        if not asset_list: return "None"
+        return ", ".join([s.replace('/USDT', '') for s in asset_list])
 
+    report = (
+        f"📊 **GUPF Market Intelligence Report - v8.3** 📊\n\n"
+        f"Pemindaian {total_assets} aset selesai. Tidak ada sinyal entri dengan probabilitas tinggi yang ditemukan.\n\n"
+        f"**Ikhtisar Pasar Saat Ini:**\n"
+        f"🟢 **Uptrend (Watching for Dips):** {len(uptrend_assets)}\n`{format_asset_list(uptrend_assets)}`\n\n"
+        f"🟡 **Ranging (Watching for Breakouts):** {len(ranging_assets)}\n`{format_asset_list(ranging_assets)}`\n\n"
+        f"🔴 **Downtrend (Ignored):** {len(downtrend_assets)}\n`{format_asset_list(downtrend_assets)}`"
+    )
+    
+    await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=report, parse_mode='Markdown')
+    print("✅ Laporan Intelijen Pasar terkirim.")
 # --- MASTER LAMBDA HANDLER ---
 def handler(event, context):
     """
-    ### HANDLER FINAL untuk v8.2 ###
+    ### HANDLER FINAL untuk v8.3 ###
     Papan sirkuit utama GUPF, terhubung ke mesin fisika.
     """
     global FUTURES_SIGNAL_FOUND
     FUTURES_SIGNAL_FOUND = False
     
     # Versi untuk logging yang jelas
-    version = "8.2"
+    version = "8.3"
     print(f"GUPF v({version}) berjalan dalam mode: {GUPF_OPERATING_MODE}")
 
     if GUPF_OPERATING_MODE == "SCALP_ONLY":
