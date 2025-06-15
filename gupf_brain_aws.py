@@ -1,4 +1,4 @@
-# gupf_brain_aws.py - VERSI 7.4 (Unified Scoring Protocol)
+# gupf_brain_aws.py - VERSI 8.0 The Hybrid Pro
 import numpy as np
 import math
 import os
@@ -43,81 +43,77 @@ async def execute_futures_scan_protocol():
 
 async def analyze_spot_scalp_asset(symbol, exchange):
     """
-    ### EVOLUSI DEFINITIF: v7.4 (Normalized Scoring Protocol) ###
-    Menggunakan sistem penilaian 0-100 yang dinormalisasi untuk setiap komponen
-    agar dapat membandingkan dan menimbang peluang secara cerdas.
+    ### EVOLUSI FONDASIONAL: v8.0 (The Hybrid Pro) ###
+    Menggunakan strategi Trend Filter (15m) + Pullback Entry (3m RSI).
+    Sederhana, Kuat, dan Terbukti.
     """
     try:
-        macro_bars = await exchange.fetch_ohlcv(symbol, timeframe='15m', limit=100)
+        # --- LANGKAH 1: FILTER GAMBAR BESAR (Timeframe: 15 Menit) ---
+        macro_bars = await exchange.fetch_ohlcv(symbol, timeframe='15m', limit=210)
+        if len(macro_bars) < 201: return None # Butuh data yang cukup untuk EMA 200
+        
         df_macro = pd.DataFrame(macro_bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df_macro.ta.ema(length=50, append=True)
+        df_macro.ta.ema(length=200, append=True)
+
+        if df_macro.isnull().values.any(): return None
         
-        bars = await exchange.fetch_ohlcv(symbol, timeframe='1m', limit=100)
+        last_macro = df_macro.iloc[-1]
+        is_strong_uptrend = last_macro['close'] > last_macro.get('EMA_200', float('inf'))
+
+        # Jika tren utama tidak naik, abaikan aset ini sepenuhnya.
+        if not is_strong_uptrend:
+            return None
+
+        # --- LANGKAH 2: SINYAL ENTRI PULLBACK (Timeframe: 3 Menit) ---
+        bars = await exchange.fetch_ohlcv(symbol, timeframe='3m', limit=100)
+        if len(bars) < 15: return None # Butuh data yang cukup untuk RSI 14
+
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df.ta.rsi(length=14, append=True)
+        df.ta.atr(length=14, append=True)
 
-        if df.empty or len(df) < 22 or df_macro.empty: return None
-
-        df.ta.ema(length=5, append=True); df.ta.ema(length=12, append=True); df.ta.atr(length=14, append=True)
-        v = df['close'].diff(); a = v.diff(); L = np.sqrt(df['volume'].replace(0, 1e-9)); F = a * L
-        F_mean = F.rolling(window=20).mean(); F_std = F.rolling(window=20).std().replace(0, 1e-9); Z_score = (F - F_mean) / F_std
-        df['Z'] = Z_score
-
-        if df.isnull().values.any() or df_macro.isnull().values.any(): return None
+        if df.isnull().values.any(): return None
         
-        last = df.iloc[-1]; last_macro = df_macro.iloc[-1]
+        last = df.iloc[-1]
         
-        # ### NORMALISASI SKOR BARU (0-100) v7.4 ###
-        def normalize_score(value, min_val, max_val):
-            return max(0, min(100, (value - min_val) / (max_val - min_val) * 100))
-
-        # 1. Skor Tren Makro (0-100)
-        macro_ema = last_macro.get('EMA_50', last_macro['close'])
-        macro_pct_diff = ((last_macro['close'] - macro_ema) / macro_ema) * 100
-        macro_trend_score = normalize_score(macro_pct_diff, 0, 2.0) # 0-2% di atas EMA = skor 0-100
-
-        # 2. Skor Momentum Mikro (0-100)
-        micro_ema_12 = last.get('EMA_12', last.get('EMA_5'))
-        micro_pct_diff = ((last.get('EMA_5') - micro_ema_12) / micro_ema_12) * 100
-        micro_momentum_score = normalize_score(micro_pct_diff, 0, 0.1) # 0-0.1% di atas EMA 12 = skor 0-100
-
-        # 3. Skor Anomali Gaya (0-100)
-        force_anomaly_score = normalize_score(last.get('Z', 0), 1.0, 3.0) # Z-score 1-3 = skor 0-100
-
-        # Kalkulasi Skor Akhir Terpadu dengan Pembobotan yang Bermakna
-        final_score = (macro_trend_score * 0.20) + (micro_momentum_score * 0.50) + (force_anomaly_score * 0.30)
+        # Kondisi Entri: RSI di bawah 35, menandakan pullback dalam tren naik.
+        RSI_OVERSOLD_THRESHOLD = 35.0
         
-        CONFIDENCE_SCORE_THRESHOLD = 75 # Ambang batas: hanya ambil sinyal di 25% teratas
-        
-        if final_score > CONFIDENCE_SCORE_THRESHOLD:
+        if last.get('RSI_14', 100) < RSI_OVERSOLD_THRESHOLD:
             entry_price = last['close']
             last_atr = last.get('ATR_14', 0)
             if last_atr == 0: return None
 
+            # --- MANAJEMEN RISIKO DINAMIS (ATR) ---
             stop_loss = entry_price - (last_atr * 1.5)
             take_profit = entry_price + (last_atr * 2.5)
             
             market_info = exchange.market(symbol)
             prec = market_info['precision']['price']
             
+            # 'Keyakinan' sekarang adalah seberapa rendah RSI (semakin rendah, semakin baik)
+            # Kita balik nilainya agar skor lebih tinggi = lebih baik
+            confidence_score = 100 - last.get('RSI_14')
+            
             return {
-                "protocol": "Normalized_Scoring", "symbol": symbol, "side": "BUY",
+                "protocol": "Hybrid_Pro", "symbol": symbol, "side": "BUY",
                 "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
-                "confidence": final_score, 
-                "source": f"Norm Score v7.4 (M:{macro_trend_score:.0f},μ:{micro_momentum_score:.0f},F:{force_anomaly_score:.0f})"
+                "confidence": confidence_score, 
+                "source": f"Hybrid Pro v8.0 (RSI: {last.get('RSI_14'):.2f})"
             }
         
         return None
         
     except Exception as e:
-        print(f"  [Analisis v7.4] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
+        print(f"  [Analisis v8.0] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
         return None
 
 async def execute_scalp_fleet_protocol():
     """
-    ### EVOLUSI: v7.4 (Normalized Scoring Protocol) ###
+    ### EVOLUSI: v8.0 The Hybrid Pro ###
     Memindai banyak aset spot dan mengeksekusi 5 sinyal terbaik.
     """
-    print("💡 Memulai Protokol Armada Scalp v7.4...") # Ubah v5.9 menjadi v7.1
+    print("💡 Memulai Protokol Armada Scalp v8.0...") # Ubah v5.9 menjadi v7.1
     
     # 1. Mendapatkan daftar target yang sama dengan futures
     scan_list = await get_scan_list()
@@ -265,14 +261,14 @@ async def get_scan_list():
 # --- MASTER LAMBDA HANDLER ---
 def handler(event, context):
     """
-    ### HANDLER FINAL untuk v7.4 ###
+    ### HANDLER FINAL untuk v8.0 ###
     Papan sirkuit utama GUPF, terhubung ke mesin fisika.
     """
     global FUTURES_SIGNAL_FOUND
     FUTURES_SIGNAL_FOUND = False
     
     # Versi untuk logging yang jelas
-    version = "7.4"
+    version = "8.0"
     print(f"GUPF v({version}) berjalan dalam mode: {GUPF_OPERATING_MODE}")
 
     if GUPF_OPERATING_MODE == "SCALP_ONLY":
