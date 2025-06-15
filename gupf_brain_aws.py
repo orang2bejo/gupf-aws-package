@@ -104,20 +104,20 @@ async def analyze_spot_scalp_asset(symbol, exchange):
 
 async def execute_scalp_fleet_protocol():
     """
-    ### EVOLUSI TRANSPARANSI: v8.5 ###
-    Sekarang mengenali dan mengumpulkan aset dengan data yang tidak lengkap.
+    ### PERBAIKAN SINTAKSIS: v8.5.1 ###
+    Memperbaiki blok 'if' yang kosong dan memastikan semua logika ada di tempatnya.
     """
-    print("💡 Memulai Protokol Armada Scalp v8.5...")
+    print("💡 Memulai Protokol Armada Scalp v8.5.1...")
     scan_list = await get_scan_list()
     print(f"  [Armada Scalp] {len(scan_list)} target teridentifikasi untuk dianalisis.")
 
     trade_signals = []
-    # ### PERBAIKAN UTAMA: Menambahkan kategori baru ###
     market_statuses = {"Uptrend": [], "Ranging": [], "Downtrend": [], "Insufficient_Data": [], "Analysis_Failed": []}
     
     exchange = ccxt.binance({'options': {'defaultType': 'spot'}})
     try:
         await exchange.load_markets()
+        
         tasks = [analyze_spot_scalp_asset(symbol, exchange) for symbol in scan_list.keys()]
         results = await asyncio.gather(*tasks)
         
@@ -128,11 +128,24 @@ async def execute_scalp_fleet_protocol():
             elif res['type'] == 'status' and res['status'] in market_statuses:
                 market_statuses[res['status']].append(res['symbol'])
         
+        # ### KODE LENGKAP YANG SEBELUMNYA HILANG ###
         if trade_signals:
-            # ... (logika pengiriman sinyal tetap sama)
+            print(f"  [Armada Scalp] {len(trade_signals)} sinyal kandidat ditemukan. Memilih yang terbaik...")
+            # Mengurutkan sinyal berdasarkan skor keyakinan, dari tertinggi ke terendah
+            sorted_signals = sorted(trade_signals, key=lambda x: x['confidence'], reverse=True)
+            # Mengirim maksimal 3 sinyal terbaik untuk dieksekusi
+            for signal in sorted_signals[:3]:
+                await send_cornix_signal(signal)
         else:
             print("  [Armada Scalp] Tidak ada sinyal trading ditemukan. Menyusun Laporan Intelijen...")
             await send_intelligence_report(market_statuses)
+            
+    except Exception as e:
+        print(f"🔴 ERROR dalam Protokol Armada Scalp: {e}")
+        traceback.print_exc()
+    finally:
+        await exchange.close()
+    print("✅ Protokol Armada Scalp Selesai.")
 
 
 # --- (Fungsi inti dan pembantu lainnya TIDAK BERUBAH dari v5.1) ---
@@ -277,14 +290,14 @@ async def send_intelligence_report(statuses):
 # --- MASTER LAMBDA HANDLER ---
 def handler(event, context):
     """
-    ### HANDLER FINAL untuk v8.5 ###
+    ### HANDLER FINAL untuk v8.5.1 ###
     Papan sirkuit utama GUPF, terhubung ke mesin fisika.
     """
     global FUTURES_SIGNAL_FOUND
     FUTURES_SIGNAL_FOUND = False
     
     # Versi untuk logging yang jelas
-    version = "8.5"
+    version = "8.5.1"
     print(f"GUPF v({version}) berjalan dalam mode: {GUPF_OPERATING_MODE}")
 
     if GUPF_OPERATING_MODE == "SCALP_ONLY":
