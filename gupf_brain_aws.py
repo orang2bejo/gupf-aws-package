@@ -1,4 +1,4 @@
-# gupf_brain_aws.py - VERSI 8.0 The Hybrid Pro
+# gupf_brain_aws.py - VERSI 8.1 (The Tuned Hybrid Pro)
 import numpy as np
 import math
 import os
@@ -28,7 +28,7 @@ CACHE_MAX_AGE_HOURS = 6
 async def execute_futures_scan_protocol():
     """Protokol Utama Pencari Alpha untuk Pasar Futures."""
     global FUTURES_SIGNAL_FOUND
-    print("🚀 Memulai GUPF v7.4 Protokol Pemindaian Futures...")
+    print("🚀 Memulai GUPF v8.1 Protokol Pemindaian Futures...")
     scan_list = await get_scan_list()
     
     exchange = ccxt.binance({'options': {'defaultType': 'future'}})
@@ -43,30 +43,30 @@ async def execute_futures_scan_protocol():
 
 async def analyze_spot_scalp_asset(symbol, exchange):
     """
-    ### EVOLUSI FONDASIONAL: v8.0 (The Hybrid Pro) ###
-    Menggunakan strategi Trend Filter (15m) + Pullback Entry (3m RSI).
-    Sederhana, Kuat, dan Terbukti.
+    ### EVOLUSI PENYETELAN: v8.1 (The Tuned Hybrid Pro) ###
+    Menggunakan filter tren yang lebih responsif dan pemicu entri yang lebih sensitif.
     """
     try:
-        # --- LANGKAH 1: FILTER GAMBAR BESAR (Timeframe: 15 Menit) ---
-        macro_bars = await exchange.fetch_ohlcv(symbol, timeframe='15m', limit=210)
-        if len(macro_bars) < 201: return None # Butuh data yang cukup untuk EMA 200
+        # --- LANGKAH 1: FILTER TREN (Timeframe: 15 Menit, EMA 100) ---
+        macro_bars = await exchange.fetch_ohlcv(symbol, timeframe='15m', limit=110)
+        if len(macro_bars) < 101: return None # Butuh data yang cukup untuk EMA 100
         
         df_macro = pd.DataFrame(macro_bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df_macro.ta.ema(length=200, append=True)
+        # Menggunakan EMA 100 untuk tren yang lebih responsif
+        df_macro.ta.ema(length=100, append=True)
 
         if df_macro.isnull().values.any(): return None
         
         last_macro = df_macro.iloc[-1]
-        is_strong_uptrend = last_macro['close'] > last_macro.get('EMA_200', float('inf'))
+        is_uptrend = last_macro['close'] > last_macro.get('EMA_100', float('inf'))
 
-        # Jika tren utama tidak naik, abaikan aset ini sepenuhnya.
-        if not is_strong_uptrend:
+        if not is_uptrend:
             return None
 
-        # --- LANGKAH 2: SINYAL ENTRI PULLBACK (Timeframe: 3 Menit) ---
-        bars = await exchange.fetch_ohlcv(symbol, timeframe='3m', limit=100)
-        if len(bars) < 15: return None # Butuh data yang cukup untuk RSI 14
+        # --- LANGKAH 2: SINYAL ENTRI (Timeframe: 5 Menit, RSI < 40) ---
+        # Menggunakan timeframe 5 menit untuk sinyal yang lebih jernih
+        bars = await exchange.fetch_ohlcv(symbol, timeframe='5m', limit=100)
+        if len(bars) < 15: return None
 
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df.ta.rsi(length=14, append=True)
@@ -76,44 +76,41 @@ async def analyze_spot_scalp_asset(symbol, exchange):
         
         last = df.iloc[-1]
         
-        # Kondisi Entri: RSI di bawah 35, menandakan pullback dalam tren naik.
-        RSI_OVERSOLD_THRESHOLD = 35.0
+        # Menggunakan ambang batas RSI 40 yang lebih sensitif
+        RSI_OVERSOLD_THRESHOLD = 40.0
         
         if last.get('RSI_14', 100) < RSI_OVERSOLD_THRESHOLD:
             entry_price = last['close']
             last_atr = last.get('ATR_14', 0)
             if last_atr == 0: return None
 
-            # --- MANAJEMEN RISIKO DINAMIS (ATR) ---
             stop_loss = entry_price - (last_atr * 1.5)
             take_profit = entry_price + (last_atr * 2.5)
             
             market_info = exchange.market(symbol)
             prec = market_info['precision']['price']
             
-            # 'Keyakinan' sekarang adalah seberapa rendah RSI (semakin rendah, semakin baik)
-            # Kita balik nilainya agar skor lebih tinggi = lebih baik
             confidence_score = 100 - last.get('RSI_14')
             
             return {
-                "protocol": "Hybrid_Pro", "symbol": symbol, "side": "BUY",
+                "protocol": "Tuned_Hybrid_Pro", "symbol": symbol, "side": "BUY",
                 "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
                 "confidence": confidence_score, 
-                "source": f"Hybrid Pro v8.0 (RSI: {last.get('RSI_14'):.2f})"
+                "source": f"Tuned Hybrid v8.1 (RSI: {last.get('RSI_14'):.2f})"
             }
         
         return None
         
     except Exception as e:
-        print(f"  [Analisis v8.0] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
+        print(f"  [Analisis v8.1] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
         return None
 
 async def execute_scalp_fleet_protocol():
     """
-    ### EVOLUSI: v8.0 The Hybrid Pro ###
+    ### EVOLUSI: v8.1 (The Tuned Hybrid Pro) ###
     Memindai banyak aset spot dan mengeksekusi 5 sinyal terbaik.
     """
-    print("💡 Memulai Protokol Armada Scalp v8.0...") # Ubah v5.9 menjadi v7.1
+    print("💡 Memulai Protokol Armada Scalp v8.1...") # Ubah v5.9 menjadi v7.1
     
     # 1. Mendapatkan daftar target yang sama dengan futures
     scan_list = await get_scan_list()
@@ -261,14 +258,14 @@ async def get_scan_list():
 # --- MASTER LAMBDA HANDLER ---
 def handler(event, context):
     """
-    ### HANDLER FINAL untuk v8.0 ###
+    ### HANDLER FINAL untuk v8.1 ###
     Papan sirkuit utama GUPF, terhubung ke mesin fisika.
     """
     global FUTURES_SIGNAL_FOUND
     FUTURES_SIGNAL_FOUND = False
     
     # Versi untuk logging yang jelas
-    version = "8.0"
+    version = "8.1"
     print(f"GUPF v({version}) berjalan dalam mode: {GUPF_OPERATING_MODE}")
 
     if GUPF_OPERATING_MODE == "SCALP_ONLY":
