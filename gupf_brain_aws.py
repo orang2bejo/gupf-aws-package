@@ -1,4 +1,4 @@
-# gupf_brain_aws.py - VERSI 7.3 (Unified Scoring Protocol)
+# gupf_brain_aws.py - VERSI 7.4 (Unified Scoring Protocol)
 import numpy as np
 import math
 import os
@@ -28,7 +28,7 @@ CACHE_MAX_AGE_HOURS = 6
 async def execute_futures_scan_protocol():
     """Protokol Utama Pencari Alpha untuk Pasar Futures."""
     global FUTURES_SIGNAL_FOUND
-    print("🚀 Memulai GUPF v7.2 Protokol Pemindaian Futures...")
+    print("🚀 Memulai GUPF v7.4 Protokol Pemindaian Futures...")
     scan_list = await get_scan_list()
     
     exchange = ccxt.binance({'options': {'defaultType': 'future'}})
@@ -43,11 +43,11 @@ async def execute_futures_scan_protocol():
 
 async def analyze_spot_scalp_asset(symbol, exchange):
     """
-    ### EVOLUSI DEFINITIF: v7.3 (Unified Scoring Protocol) ###
-    Menggabungkan semua strategi menjadi satu skor terpadu untuk menilai peluang secara relatif.
+    ### EVOLUSI DEFINITIF: v7.4 (Normalized Scoring Protocol) ###
+    Menggunakan sistem penilaian 0-100 yang dinormalisasi untuk setiap komponen
+    agar dapat membandingkan dan menimbang peluang secara cerdas.
     """
     try:
-        # --- Pengumpulan & Perhitungan Data Universal ---
         macro_bars = await exchange.fetch_ohlcv(symbol, timeframe='15m', limit=100)
         df_macro = pd.DataFrame(macro_bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df_macro.ta.ema(length=50, append=True)
@@ -66,28 +66,27 @@ async def analyze_spot_scalp_asset(symbol, exchange):
         
         last = df.iloc[-1]; last_macro = df_macro.iloc[-1]
         
-        # --- PERHITUNGAN SKOR BARU v7.3 ---
-        # 1. Skor Tren Makro (0-1, 1 adalah netral)
-        macro_trend_score = last_macro['close'] / last_macro.get('EMA_50', last_macro['close'])
+        # ### NORMALISASI SKOR BARU (0-100) v7.4 ###
+        def normalize_score(value, min_val, max_val):
+            return max(0, min(100, (value - min_val) / (max_val - min_val) * 100))
 
-        # 2. Skor Momentum Mikro (0-1, 1 adalah netral)
-        micro_momentum_score = last.get('EMA_5') / last.get('EMA_12', last.get('EMA_5'))
+        # 1. Skor Tren Makro (0-100)
+        macro_ema = last_macro.get('EMA_50', last_macro['close'])
+        macro_pct_diff = ((last_macro['close'] - macro_ema) / macro_ema) * 100
+        macro_trend_score = normalize_score(macro_pct_diff, 0, 2.0) # 0-2% di atas EMA = skor 0-100
 
-        # 3. Skor Anomali Gaya (0-1, dinormalisasi dari Z-score)
-        # Kami meng-clamp Z-score antara 0 dan 3 untuk stabilitas, lalu menormalisasinya
-        capped_z_score = max(0, min(last.get('Z', 0), 3.0))
-        force_anomaly_score = capped_z_score / 3.0 
+        # 2. Skor Momentum Mikro (0-100)
+        micro_ema_12 = last.get('EMA_12', last.get('EMA_5'))
+        micro_pct_diff = ((last.get('EMA_5') - micro_ema_12) / micro_ema_12) * 100
+        micro_momentum_score = normalize_score(micro_pct_diff, 0, 0.1) # 0-0.1% di atas EMA 12 = skor 0-100
+
+        # 3. Skor Anomali Gaya (0-100)
+        force_anomaly_score = normalize_score(last.get('Z', 0), 1.0, 3.0) # Z-score 1-3 = skor 0-100
+
+        # Kalkulasi Skor Akhir Terpadu dengan Pembobotan yang Bermakna
+        final_score = (macro_trend_score * 0.20) + (micro_momentum_score * 0.50) + (force_anomaly_score * 0.30)
         
-        # --- PENILAIAN & KEPUTUSAN ---
-        # Hanya pertimbangkan aset yang setidaknya dalam tren mikro naik
-        if micro_momentum_score < 1.001:
-            return None
-
-        # Kalkulasi Skor Akhir Terpadu
-        final_score = (macro_trend_score * 0.3) + (micro_momentum_score * 1.0) + (force_anomaly_score * 0.6)
-        
-        # Ambang Batas Minimal: hanya sinyal dengan skor yang menjanjikan
-        CONFIDENCE_SCORE_THRESHOLD = 1.05 
+        CONFIDENCE_SCORE_THRESHOLD = 75 # Ambang batas: hanya ambil sinyal di 25% teratas
         
         if final_score > CONFIDENCE_SCORE_THRESHOLD:
             entry_price = last['close']
@@ -101,24 +100,24 @@ async def analyze_spot_scalp_asset(symbol, exchange):
             prec = market_info['precision']['price']
             
             return {
-                "protocol": "Unified_Scoring", "symbol": symbol, "side": "BUY",
+                "protocol": "Normalized_Scoring", "symbol": symbol, "side": "BUY",
                 "entry": f"{entry_price:.{prec}f}", "tp1": f"{take_profit:.{prec}f}", "sl": f"{stop_loss:.{prec}f}",
                 "confidence": final_score, 
-                "source": f"Unified Scoring v7.3 (M:{macro_trend_score:.2f},μ:{micro_momentum_score:.2f},F:{force_anomaly_score:.2f})"
+                "source": f"Norm Score v7.4 (M:{macro_trend_score:.0f},μ:{micro_momentum_score:.0f},F:{force_anomaly_score:.0f})"
             }
         
         return None
         
     except Exception as e:
-        print(f"  [Analisis v7.3] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
+        print(f"  [Analisis v7.4] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
         return None
 
 async def execute_scalp_fleet_protocol():
     """
-    ### EVOLUSI: v7.3 (Unified Scoring Protocol) ###
+    ### EVOLUSI: v7.4 (Normalized Scoring Protocol) ###
     Memindai banyak aset spot dan mengeksekusi 5 sinyal terbaik.
     """
-    print("💡 Memulai Protokol Armada Scalp v7.3...") # Ubah v5.9 menjadi v7.1
+    print("💡 Memulai Protokol Armada Scalp v7.4...") # Ubah v5.9 menjadi v7.1
     
     # 1. Mendapatkan daftar target yang sama dengan futures
     scan_list = await get_scan_list()
@@ -190,7 +189,7 @@ async def send_cornix_signal(signal_data):
     if signal_data['protocol'] == "Futures":
         message = f"🚀 GUPF v5.2 Sinyal Futures 🚀\nCoin: #{symbol_plain}\nSinyal: {signal_data['side']}\n\nEntry: {signal_data['entry']}\nTake-Profit 1: {signal_data['tp1']}\nStop-Loss: {signal_data['sl']}\n\nConfidence: {signal_data['confidence']:.2f} (T:{signal_data['tech_score']:.2f}, S:{signal_data['sent_score']:.2f}, C:{signal_data['chaos_score']:.2f})\nSumber: {signal_data['source']}"
     else:
-        message = f"💡 GUPF v5.2 Sinyal Spot Scalp 💡\nAset: #{symbol_plain} (SPOT)\nAksi: {signal_data['side']}\n\nEntry: {signal_data['entry']}\nTake-Profit: {signal_data['tp1']} (Tetap 0.8%)\nStop-Loss: {signal_data['sl']} (Tetap 0.4%)\n\nProtokol: Sub-rutin Efisiensi Modal"
+        message = f"💡 GUPF v7.4 Sinyal Spot Scalp 💡\nAset: #{symbol_plain} (SPOT)\nAksi: {signal_data['side']}\n\nEntry: {signal_data['entry']}\nTake-Profit: {signal_data['tp1']} (Tetap 0.8%)\nStop-Loss: {signal_data['sl']} (Tetap 0.4%)\n\nProtokol: Sub-rutin Efisiensi Modal"
     await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message)
     print(f"✅ [{signal_data['symbol']}] Sinyal {signal_data['protocol']} terkirim.")
 
@@ -266,14 +265,14 @@ async def get_scan_list():
 # --- MASTER LAMBDA HANDLER ---
 def handler(event, context):
     """
-    ### HANDLER FINAL untuk v7.3 ###
+    ### HANDLER FINAL untuk v7.4 ###
     Papan sirkuit utama GUPF, terhubung ke mesin fisika.
     """
     global FUTURES_SIGNAL_FOUND
     FUTURES_SIGNAL_FOUND = False
     
     # Versi untuk logging yang jelas
-    version = "7.2"
+    version = "7.4"
     print(f"GUPF v({version}) berjalan dalam mode: {GUPF_OPERATING_MODE}")
 
     if GUPF_OPERATING_MODE == "SCALP_ONLY":
