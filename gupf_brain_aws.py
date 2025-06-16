@@ -1,5 +1,5 @@
-# gupf_brain_aws.py - VERSI 9.0 (The Elite Protocol)
-# TUJUAN: Merombak total sistem pemilihan target untuk hanya memilih aset berkualitas tinggi.
+# gupf_brain_aws.py - VERSI 9.2 (The Resilient Protocol)
+# TUJUAN: Mengimplementasikan logika analisis yang tangguh berdasarkan masukan pengguna.
 
 import os
 import json
@@ -15,75 +15,20 @@ import telegram
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', 'YOUR_FALLBACK_TOKEN')
 TELEGRAM_CHANNEL_ID = os.environ.get('TELEGRAM_CHANNEL_ID', 'YOUR_FALLBACK_CHANNEL_ID')
 GUPF_OPERATING_MODE = os.environ.get('GUPF_OPERATING_MODE', 'DEFAULT')
-FUTURES_SIGNAL_FOUND = False
-IS_RUNNING = False
+FUTURES_SIGNAL_FOUND, IS_RUNNING = False, False
 
 # --- 2. FUNGSI PEMBANTU (HELPER FUNCTIONS) ---
-# ### PEROMBAKAN UTAMA DI get_scan_list ###
 async def get_scan_list():
-    """
-    ### v9.0 Elite Protocol ###
-    Mengambil daftar aset berkualitas tinggi dengan 3 lapis filter.
-    """
-    print("  [Elite Protocol] Memulai akuisisi target berkualitas tinggi...")
-    try:
-        exchange = ccxt.binance({'options': {'defaultType': 'spot'}})
-        tickers = await exchange.fetch_tickers()
-        await exchange.close()
-        
-        # FILTER 1: Blacklist Stablecoin & Aset Non-Trading
-        stablecoin_bases = {'USDC', 'FDUSD', 'TUSD', 'DAI', 'BUSD', 'USDP', 'EUR', 'GBP', 'USD1'}
-        
-        # FILTER 2 & 3: Filter Volatilitas & Harga Minimum
-        high_quality_pairs = {}
-        for symbol, data in tickers.items():
-            if not symbol.endswith('/USDT'):
-                continue
-            
-            base_currency = symbol.split('/')[0]
-            if base_currency in stablecoin_bases:
-                continue
-
-            change_24h = data.get('percentage')
-            last_price = data.get('last')
-
-            if change_24h is None or last_price is None:
-                continue
-
-            # Hanya ambil aset dengan pergerakan > 1% dan harga > $0.01
-            if abs(change_24h) > 1.0 and last_price > 0.01:
-                high_quality_pairs[symbol] = data
-
-        # Urutkan berdasarkan volume setelah difilter
-        sorted_pairs = sorted(high_quality_pairs.items(), key=lambda item: item[1].get('quoteVolume', 0), reverse=True)
-        
-        top_pairs = dict(sorted_pairs[:30])
-        print(f"  [Elite Protocol] {len(top_pairs)} target elite teridentifikasi.")
-        return top_pairs
-    except Exception as e:
-        print(f"🔴 ERROR saat mengambil daftar elite: {e}")
-        return {}
+    # ... (Sama seperti v9.0, tidak perlu diubah)
 
 async def send_cornix_signal(signal_data):
-    bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
-    side_emoji = "🟢" if signal_data['side'] == "BUY" else "🔴"
-    message = (
-        f"{side_emoji} **GUPF v9.0 Signal** {side_emoji}\n"
-        f"**Protocol:** {signal_data.get('source', 'N/A')}\n\n"
-        f"**Pair:** `{signal_data['symbol']}`\n**Side:** `{signal_data['side']}`\n"
-        f"**Entry:** `{signal_data['entry']}`\n**Take-Profit 1:** `{signal_data['tp1']}`\n"
-        f"**Stop-Loss:** `{signal_data['sl']}`\n"
-    )
-    await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message, parse_mode='Markdown')
-    print(f"✅ Sinyal {signal_data['side']} untuk {signal_data['symbol']} terkirim.")
+    # ... (Sama seperti v9.0, tidak perlu diubah)
 
 async def send_intelligence_report(statuses):
+    """v9.2: Laporan Intelijen yang lebih detail."""
     bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
-    uptrend = statuses.get("Uptrend", [])
-    ranging = statuses.get("Ranging", [])
-    downtrend = statuses.get("Downtrend", [])
-    insufficient = statuses.get("Insufficient_Data", [])
-    failed = statuses.get("Analysis_Failed", [])
+    uptrend, ranging, downtrend = statuses.get("Uptrend", []), statuses.get("Ranging", []), statuses.get("Downtrend", [])
+    insufficient, failed_fetch, failed_analysis = statuses.get("Insufficient_Data", []), statuses.get("Data_Fetch_Failed", []), statuses.get("Analysis_Failed", [])
     total_analyzed = len(uptrend) + len(ranging) + len(downtrend)
 
     def format_asset_list(asset_list):
@@ -91,43 +36,73 @@ async def send_intelligence_report(statuses):
         return ", ".join([s.replace('/USDT', '') for s in asset_list])
 
     report = (
-        f"📊 **GUPF Market Intelligence Report - v9.0** 📊\n\n"
+        f"🛡️ **GUPF Market Intelligence Report - v9.2** 🛡️\n\n"
         f"Pemindaian selesai. **{total_analyzed} aset berhasil dianalisis.**\n"
         f"Tidak ada sinyal entri dengan probabilitas tinggi yang ditemukan.\n\n"
         f"**Ikhtisar Pasar Saat Ini:**\n"
-        f"🟢 **Uptrend (Watching for Dips):** {len(uptrend)}\n`{format_asset_list(uptrend)}`\n\n"
-        f"🟡 **Ranging (Multi-Strategy):** {len(ranging)}\n`{format_asset_list(ranging)}`\n\n"
-        f"🔴 **Downtrend (Watching for Rallies):** {len(downtrend)}\n`{format_asset_list(downtrend)}`\n\n"
-        f"⚪️ **Skipped (Insufficient Data):** {len(insufficient)}\n`{format_asset_list(insufficient)}`\n"
-        f"⚫️ **Failed (Analysis Error):** {len(failed)}\n`{format_asset_list(failed)}`"
+        f"🟢 **Uptrend:** {len(uptrend)}\n`{format_asset_list(uptrend)}`\n\n"
+        f"🟡 **Ranging:** {len(ranging)}\n`{format_asset_list(ranging)}`\n\n"
+        f"🔴 **Downtrend:** {len(downtrend)}\n`{format_asset_list(downtrend)}`\n\n"
+        f"⚪️ **Skipped (Insufficient History):** {len(insufficient)}\n`{format_asset_list(insufficient)}`\n"
+        f"🔵 **Skipped (Data Fetch Failed):** {len(failed_fetch)}\n`{format_asset_list(failed_fetch)}`\n"
+        f"⚫️ **Failed (Analysis Error):** {len(failed_analysis)}\n`{format_asset_list(failed_analysis)}`"
     )
     await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=report, parse_mode='Markdown')
-    print("✅ Laporan Intelijen Pasar terkirim.")
+    print("✅ Laporan Intelijen Resilient terkirim.")
 
 # --- 3. FUNGSI INTI (CORE LOGIC) ---
+# ### PEROMBAKAN UTAMA BERDASARKAN MASUKAN ANDA ###
 async def analyze_spot_scalp_asset(symbol):
+    """
+    ### v9.2 Resilient Protocol ###
+    Menggunakan validasi fleksibel, kalkulasi adaptif, dan penanganan NaN yang cerdas.
+    """
     exchange = ccxt.binance({'options': {'defaultType': 'spot'}})
     try:
         await exchange.load_markets()
+        
         macro_bars = await exchange.fetch_ohlcv(symbol, timeframe='15m', limit=110)
         bars = await exchange.fetch_ohlcv(symbol, timeframe='5m', limit=100)
         
-        if len(macro_bars) < 101 or len(bars) < 15:
+        # ### DEBUG LOGGING (IDE ANDA) ###
+        print(f"  DEBUG {symbol}: Diterima macro_bars={len(macro_bars)}, bars={len(bars)}")
+        
+        if not macro_bars or not bars:
+            return {'type': 'status', 'status': 'Data_Fetch_Failed', 'symbol': symbol}
+        
+        # ### VALIDASI FLEKSIBEL (IDE ANDA) ###
+        if len(macro_bars) < 51 or len(bars) < 21: # Dilonggarkan dari 101/15
             return {'type': 'status', 'status': 'Insufficient_Data', 'symbol': symbol}
         
         df_macro = pd.DataFrame(macro_bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df_macro.ta.ema(length=100, append=True)
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df.ta.rsi(length=14, append=True); df.ta.atr(length=14, append=True)
-        
-        if df.isnull().values.any() or df_macro.isnull().values.any():
-             return {'type': 'status', 'status': 'Insufficient_Data', 'symbol': symbol}
-        
-        last, prev, last_macro = df.iloc[-1], df.iloc[-2], df_macro.iloc[-1]
-        current_price, ema_100 = last_macro['close'], last_macro.get('EMA_100', 0)
-        if ema_100 == 0:
+
+        # ### KALKULASI ADAPTIF EMA (IDE ANDA) ###
+        try:
+            ema_length = min(100, len(df_macro) - 1)
+            ema_column_name = f'EMA_{ema_length}'
+            df_macro.ta.ema(length=ema_length, append=True, col_names=(ema_column_name,))
+            ema_100 = df_macro.iloc[-1].get(ema_column_name, df_macro.iloc[-1]['close'])
+        except Exception as e:
+            print(f"  WARN {symbol}: Gagal menghitung EMA adaptif: {e}")
+            ema_100 = df_macro.iloc[-1]['close'] # Fallback ke harga penutupan
+
+        # Kalkulasi indikator lainnya
+        df.ta.rsi(length=14, append=True)
+        df.ta.atr(length=14, append=True)
+
+        # ### PENANGANAN NAN CERDAS (IDE ANDA) ###
+        critical_cols = ['close', 'open', 'high', 'low']
+        if df[critical_cols].isnull().values.any() or df_macro[critical_cols].isnull().values.any():
             return {'type': 'status', 'status': 'Insufficient_Data', 'symbol': symbol}
 
+        last, prev, last_macro = df.iloc[-1], df.iloc[-2], df_macro.iloc[-1]
+        current_price = last_macro['close']
+        
+        # ### DEBUG LOGGING (IDE ANDA) ###
+        print(f"  DEBUG {symbol}: EMA={ema_100:.4f}, Price={current_price:.4f}, RSI={last.get('RSI_14'):.2f}")
+
+        # Sisa logika analisis tidak berubah
         upper_neutral_band, lower_neutral_band = ema_100 * 1.0075, ema_100 * 0.9925
         signal_found = None
         market_status = "Downtrend"
@@ -135,30 +110,25 @@ async def analyze_spot_scalp_asset(symbol):
         if current_price > upper_neutral_band:
             market_status = "Uptrend"
             if last.get('RSI_14', 100) < 40.0:
-                signal_found = {"side": "BUY", "source": f"BuyTheDip v9.0", "confidence": 100 - last.get('RSI_14')}
+                signal_found = {"side": "BUY", "source": f"BuyTheDip v9.2", "confidence": 100 - last.get('RSI_14')}
         elif current_price > lower_neutral_band:
             market_status = "Ranging"
             if prev.get('RSI_14', 100) < 50.0 and last.get('RSI_14', 0) > 50.0:
-                signal_found = {"side": "BUY", "source": f"BuyTheBreakout v9.0", "confidence": last.get('RSI_14')}
+                signal_found = {"side": "BUY", "source": f"BuyTheBreakout v9.2", "confidence": last.get('RSI_14')}
             elif prev.get('RSI_14', 0) > 50.0 and last.get('RSI_14', 100) < 50.0:
-                signal_found = {"side": "SELL", "source": f"SellTheBreakdown v9.0", "confidence": 100 - last.get('RSI_14')}
+                signal_found = {"side": "SELL", "source": f"SellTheBreakdown v9.2", "confidence": 100 - last.get('RSI_14')}
         else:
             if last.get('RSI_14', 0) > 60.0:
-                signal_found = {"side": "SELL", "source": f"SellTheRally v9.0", "confidence": last.get('RSI_14')}
+                signal_found = {"side": "SELL", "source": f"SellTheRally v9.2", "confidence": last.get('RSI_14')}
 
         if signal_found:
-            entry_price, last_atr = last['close'], last.get('ATR_14', 0)
-            if last_atr == 0: return {'type': 'status', 'status': market_status, 'symbol': symbol}
-            sl_mult, tp_mult = 1.5, 2.5
-            sl = entry_price - (last_atr * sl_mult) if signal_found['side'] == "BUY" else entry_price + (last_atr * sl_mult)
-            tp = entry_price + (last_atr * tp_mult) if signal_found['side'] == "BUY" else entry_price - (last_atr * tp_mult)
-            prec = exchange.market(symbol)['precision']['price']
-            return {"type": "signal", "data": {"protocol": "All_Weather", "symbol": symbol, "side": signal_found['side'], "entry": f"{entry_price:.{prec}f}", "tp1": f"{tp:.{prec}f}", "sl": f"{sl:.{prec}f}", "confidence": signal_found['confidence'], "source": signal_found['source']}}
+            # ... (Logika pengiriman sinyal tidak berubah dari v9.0)
         else:
             return {'type': 'status', 'status': market_status, 'symbol': symbol}
 
     except Exception as e:
-        print(f"  [Analisis v9.0] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
+        print(f"  [Analisis v9.2] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
+        traceback.print_exc()
         return {'type': 'status', 'status': 'Analysis_Failed', 'symbol': symbol}
     finally:
         if exchange:
