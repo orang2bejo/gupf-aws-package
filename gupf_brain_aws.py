@@ -1,5 +1,5 @@
-# gupf_brain_aws.py - VERSI 9.3.1 (Integrity Check)
-# TUJUAN: Satu file lengkap yang benar secara sintaksis dan fungsional.
+# gupf_brain_aws.py - VERSI 9.4 (The Precision Protocol)
+# TUJUAN: Memperbaiki kesalahan presisi kritis dan mengeraskan logika ATR.
 
 import os
 import json
@@ -18,6 +18,14 @@ GUPF_OPERATING_MODE = os.environ.get('GUPF_OPERATING_MODE', 'DEFAULT')
 FUTURES_SIGNAL_FOUND, IS_RUNNING = False, False
 
 # --- 2. FUNGSI PEMBANTU (HELPER FUNCTIONS) ---
+
+# ### FUNGSI BARU UNTUK MEMPERBAIKI MASALAH PRESISI ###
+def get_decimal_places(increment_str):
+    """Mengubah kenaikan harga (mis. '0.001') menjadi jumlah desimal (mis. 3)."""
+    if '.' in str(increment_str):
+        return len(str(increment_str).split('.')[-1].rstrip('0'))
+    return 0
+
 async def get_scan_list():
     """Mengambil daftar aset berkualitas tinggi dengan 3 lapis filter."""
     print("  [Elite Protocol] Memulai akuisisi target berkualitas tinggi...")
@@ -48,7 +56,7 @@ async def send_cornix_signal(signal_data):
     bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
     side_emoji = "🟢" if signal_data['side'] == "BUY" else "🔴"
     message = (
-        f"{side_emoji} **GUPF v9.3.1 Signal** {side_emoji}\n"
+        f"{side_emoji} **GUPF v9.4 Signal** {side_emoji}\n"
         f"**Protocol:** {signal_data.get('source', 'N/A')}\n\n"
         f"**Pair:** `{signal_data['symbol']}`\n"
         f"**Side:** `{signal_data['side']}`\n"
@@ -71,7 +79,7 @@ async def send_intelligence_report(statuses):
         return ", ".join([s.replace('/USDT', '') for s in asset_list])
 
     report = (
-        f"📊 **GUPF Market Intelligence Report - v9.3.1** 📊\n\n"
+        f"📊 **GUPF Market Intelligence Report - v9.4** 📊\n\n"
         f"Pemindaian selesai. **{total_analyzed} aset berhasil dianalisis.**\n"
         f"Tidak ada sinyal entri dengan probabilitas tinggi yang ditemukan.\n\n"
         f"**Ikhtisar Pasar Saat Ini:**\n"
@@ -87,7 +95,7 @@ async def send_intelligence_report(statuses):
 
 # --- 3. FUNGSI INTI (CORE LOGIC) ---
 async def analyze_spot_scalp_asset(symbol):
-    """v9.3.1: Logika lengkap dengan strategi Momentum Continuation."""
+    """v9.4: Menggunakan konverter presisi dan benteng pertahanan ATR."""
     exchange = ccxt.binance({'options': {'defaultType': 'spot'}})
     try:
         await exchange.load_markets()
@@ -126,29 +134,35 @@ async def analyze_spot_scalp_asset(symbol):
         if current_price > upper_neutral_band:
             market_status = "Uptrend"
             if last.get('RSI_14', 100) < 40.0:
-                signal_found = {"side": "BUY", "source": f"BuyTheDip v9.3.1", "confidence": 100 - last.get('RSI_14')}
+                signal_found = {"side": "BUY", "source": f"BuyTheDip v9.4", "confidence": 100 - last.get('RSI_14')}
             elif prev.get('close') < prev.get('EMA_12', float('inf')) and last.get('close') > last.get('EMA_12', 0):
-                signal_found = {"side": "BUY", "source": f"MomentumContinuation v9.3.1", "confidence": 60 + (last.get('RSI_14', 50)-50)}
+                signal_found = {"side": "BUY", "source": f"MomentumContinuation v9.4", "confidence": 60 + (last.get('RSI_14', 50)-50)}
         elif current_price > lower_neutral_band:
             market_status = "Ranging"
             if prev.get('RSI_14', 100) < 50.0 and last.get('RSI_14', 0) > 50.0:
-                signal_found = {"side": "BUY", "source": f"BuyTheBreakout v9.3.1", "confidence": last.get('RSI_14')}
+                signal_found = {"side": "BUY", "source": f"BuyTheBreakout v9.4", "confidence": last.get('RSI_14')}
             elif prev.get('RSI_14', 0) > 50.0 and last.get('RSI_14', 100) < 50.0:
-                signal_found = {"side": "SELL", "source": f"SellTheBreakdown v9.3.1", "confidence": 100 - last.get('RSI_14')}
+                signal_found = {"side": "SELL", "source": f"SellTheBreakdown v9.4", "confidence": 100 - last.get('RSI_14')}
         else:
             if last.get('RSI_14', 0) > 60.0:
-                signal_found = {"side": "SELL", "source": f"SellTheRally v9.3.1", "confidence": last.get('RSI_14')}
+                signal_found = {"side": "SELL", "source": f"SellTheRally v9.4", "confidence": last.get('RSI_14')}
 
         if signal_found:
             entry_price = last['close']
-            last_atr = last.get('ATR_14', 0.0001)
-            if pd.isna(last_atr) or last_atr <= 0:
-                last_atr = entry_price * 0.01
+            
+            # ### PERBAIKAN BENTENG PERTAHANAN ATR ###
+            last_atr = last.get('ATR_14')
+            if pd.isna(last_atr) or last_atr <= 0 or last_atr > (entry_price * 0.1): # Jika ATR > 10% harga, tidak wajar
+                last_atr = entry_price * 0.015 # Fallback: 1.5% dari harga saat ini
+                print(f"  WARN {symbol}: ATR tidak valid. Menggunakan fallback ATR: {last_atr}")
                 
             sl_mult, tp_mult = 1.5, 2.5
             sl = entry_price - (last_atr * sl_mult) if signal_found['side'] == "BUY" else entry_price + (last_atr * sl_mult)
             tp = entry_price + (last_atr * tp_mult) if signal_found['side'] == "BUY" else entry_price - (last_atr * tp_mult)
-            prec = exchange.market(symbol)['precision']['price']
+            
+            # ### PERBAIKAN KONVERTER PRESISI CERDAS ###
+            price_increment = exchange.market(symbol)['precision']['price']
+            prec = get_decimal_places(price_increment)
             
             return {
                 "type": "signal", 
@@ -162,7 +176,7 @@ async def analyze_spot_scalp_asset(symbol):
             return {'type': 'status', 'status': market_status, 'symbol': symbol}
 
     except Exception as e:
-        print(f"  [Analisis v9.3.1] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
+        print(f"  [Analisis v9.4] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
         traceback.print_exc()
         return {'type': 'status', 'status': 'Analysis_Failed', 'symbol': symbol}
     finally:
@@ -172,7 +186,7 @@ async def analyze_spot_scalp_asset(symbol):
 # --- 4. FUNGSI ORKESTRASI (ORCHESTRATION) ---
 async def execute_scalp_fleet_protocol():
     """Loop utama untuk analisis spot."""
-    print("💡 Memulai Protokol Armada Spot v9.3.1 (Mode Elite)...")
+    print("💡 Memulai Protokol Armada Spot v9.4 (Mode Precision)...")
     scan_list = await get_scan_list()
     print(f"  [Armada Spot] {len(scan_list)} target elite akan dianalisis.")
     trade_signals, market_statuses = [], {"Uptrend": [], "Ranging": [], "Downtrend": [], "Insufficient_Data": [], "Data_Fetch_Failed": [], "Analysis_Failed": []}
@@ -219,7 +233,7 @@ def handler(event, context):
     
     IS_RUNNING = True
     try:
-        version = "9.3.1"
+        version = "9.4"
         print(f"GUPF v({version}) berjalan dalam mode: {GUPF_OPERATING_MODE}")
 
         if GUPF_OPERATING_MODE == "SCALP_ONLY":
