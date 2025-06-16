@@ -1,5 +1,5 @@
-# gupf_brain_aws.py - VERSI 8.8.1 (Integrity Restoration)
-# TUJUAN: Mengembalikan fungsionalitas futures dan menyediakan satu file lengkap yang stabil.
+# gupf_brain_aws.py - VERSI 9.0 (The Elite Protocol)
+# TUJUAN: Merombak total sistem pemilihan target untuk hanya memilih aset berkualitas tinggi.
 
 import os
 import json
@@ -14,47 +14,70 @@ import telegram
 # --- 1. KONFIGURASI & VARIABEL GLOBAL ---
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', 'YOUR_FALLBACK_TOKEN')
 TELEGRAM_CHANNEL_ID = os.environ.get('TELEGRAM_CHANNEL_ID', 'YOUR_FALLBACK_CHANNEL_ID')
-GUPF_OPERATING_MODE = os.environ.get('GUPF_OPERATING_MODE', 'DEFAULT') # Mode default sekarang
-
-# Variabel global untuk komunikasi antar fungsi
+GUPF_OPERATING_MODE = os.environ.get('GUPF_OPERATING_MODE', 'DEFAULT')
 FUTURES_SIGNAL_FOUND = False
 IS_RUNNING = False
 
 # --- 2. FUNGSI PEMBANTU (HELPER FUNCTIONS) ---
+# ### PEROMBAKAN UTAMA DI get_scan_list ###
 async def get_scan_list():
-    """Mengambil daftar pasangan USDT spot dengan volume tertinggi dari Binance."""
+    """
+    ### v9.0 Elite Protocol ###
+    Mengambil daftar aset berkualitas tinggi dengan 3 lapis filter.
+    """
+    print("  [Elite Protocol] Memulai akuisisi target berkualitas tinggi...")
     try:
         exchange = ccxt.binance({'options': {'defaultType': 'spot'}})
         tickers = await exchange.fetch_tickers()
         await exchange.close()
         
-        usdt_pairs = {symbol: data for symbol, data in tickers.items() if symbol.endswith('/USDT')}
-        sorted_pairs = sorted(usdt_pairs.items(), key=lambda item: item[1].get('quoteVolume', 0), reverse=True)
+        # FILTER 1: Blacklist Stablecoin & Aset Non-Trading
+        stablecoin_bases = {'USDC', 'FDUSD', 'TUSD', 'DAI', 'BUSD', 'USDP', 'EUR', 'GBP', 'USD1'}
+        
+        # FILTER 2 & 3: Filter Volatilitas & Harga Minimum
+        high_quality_pairs = {}
+        for symbol, data in tickers.items():
+            if not symbol.endswith('/USDT'):
+                continue
+            
+            base_currency = symbol.split('/')[0]
+            if base_currency in stablecoin_bases:
+                continue
+
+            change_24h = data.get('percentage')
+            last_price = data.get('last')
+
+            if change_24h is None or last_price is None:
+                continue
+
+            # Hanya ambil aset dengan pergerakan > 1% dan harga > $0.01
+            if abs(change_24h) > 1.0 and last_price > 0.01:
+                high_quality_pairs[symbol] = data
+
+        # Urutkan berdasarkan volume setelah difilter
+        sorted_pairs = sorted(high_quality_pairs.items(), key=lambda item: item[1].get('quoteVolume', 0), reverse=True)
         
         top_pairs = dict(sorted_pairs[:30])
+        print(f"  [Elite Protocol] {len(top_pairs)} target elite teridentifikasi.")
         return top_pairs
     except Exception as e:
-        print(f"🔴 ERROR saat mengambil daftar pindaian: {e}")
+        print(f"🔴 ERROR saat mengambil daftar elite: {e}")
         return {}
 
 async def send_cornix_signal(signal_data):
-    """Memformat dan mengirim sinyal ke Telegram."""
     bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
     side_emoji = "🟢" if signal_data['side'] == "BUY" else "🔴"
     message = (
-        f"{side_emoji} **GUPF v8.8.1 Signal** {side_emoji}\n"
+        f"{side_emoji} **GUPF v9.0 Signal** {side_emoji}\n"
         f"**Protocol:** {signal_data.get('source', 'N/A')}\n\n"
-        f"**Pair:** `{signal_data['symbol']}`\n"
-        f"**Side:** `{signal_data['side']}`\n"
-        f"**Entry:** `{signal_data['entry']}`\n"
-        f"**Take-Profit 1:** `{signal_data['tp1']}`\n"
+        f"**Pair:** `{signal_data['symbol']}`\n**Side:** `{signal_data['side']}`\n"
+        f"**Entry:** `{signal_data['entry']}`\n**Take-Profit 1:** `{signal_data['tp1']}`\n"
         f"**Stop-Loss:** `{signal_data['sl']}`\n"
     )
     await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message, parse_mode='Markdown')
     print(f"✅ Sinyal {signal_data['side']} untuk {signal_data['symbol']} terkirim.")
 
 async def send_intelligence_report(statuses):
-    """Menyusun dan mengirim laporan intelijen pasar."""
     bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
     uptrend = statuses.get("Uptrend", [])
     ranging = statuses.get("Ranging", [])
@@ -68,7 +91,7 @@ async def send_intelligence_report(statuses):
         return ", ".join([s.replace('/USDT', '') for s in asset_list])
 
     report = (
-        f"📊 **GUPF Market Intelligence Report - v8.8.1** 📊\n\n"
+        f"📊 **GUPF Market Intelligence Report - v9.0** 📊\n\n"
         f"Pemindaian selesai. **{total_analyzed} aset berhasil dianalisis.**\n"
         f"Tidak ada sinyal entri dengan probabilitas tinggi yang ditemukan.\n\n"
         f"**Ikhtisar Pasar Saat Ini:**\n"
@@ -83,7 +106,6 @@ async def send_intelligence_report(statuses):
 
 # --- 3. FUNGSI INTI (CORE LOGIC) ---
 async def analyze_spot_scalp_asset(symbol):
-    """Sepenuhnya mandiri. Membuka dan menutup koneksinya sendiri untuk setiap aset."""
     exchange = ccxt.binance({'options': {'defaultType': 'spot'}})
     try:
         await exchange.load_markets()
@@ -113,16 +135,16 @@ async def analyze_spot_scalp_asset(symbol):
         if current_price > upper_neutral_band:
             market_status = "Uptrend"
             if last.get('RSI_14', 100) < 40.0:
-                signal_found = {"side": "BUY", "source": f"BuyTheDip v8.8.1", "confidence": 100 - last.get('RSI_14')}
+                signal_found = {"side": "BUY", "source": f"BuyTheDip v9.0", "confidence": 100 - last.get('RSI_14')}
         elif current_price > lower_neutral_band:
             market_status = "Ranging"
             if prev.get('RSI_14', 100) < 50.0 and last.get('RSI_14', 0) > 50.0:
-                signal_found = {"side": "BUY", "source": f"BuyTheBreakout v8.8.1", "confidence": last.get('RSI_14')}
+                signal_found = {"side": "BUY", "source": f"BuyTheBreakout v9.0", "confidence": last.get('RSI_14')}
             elif prev.get('RSI_14', 0) > 50.0 and last.get('RSI_14', 100) < 50.0:
-                signal_found = {"side": "SELL", "source": f"SellTheBreakdown v8.8.1", "confidence": 100 - last.get('RSI_14')}
+                signal_found = {"side": "SELL", "source": f"SellTheBreakdown v9.0", "confidence": 100 - last.get('RSI_14')}
         else:
             if last.get('RSI_14', 0) > 60.0:
-                signal_found = {"side": "SELL", "source": f"SellTheRally v8.8.1", "confidence": last.get('RSI_14')}
+                signal_found = {"side": "SELL", "source": f"SellTheRally v9.0", "confidence": last.get('RSI_14')}
 
         if signal_found:
             entry_price, last_atr = last['close'], last.get('ATR_14', 0)
@@ -136,7 +158,7 @@ async def analyze_spot_scalp_asset(symbol):
             return {'type': 'status', 'status': market_status, 'symbol': symbol}
 
     except Exception as e:
-        print(f"  [Analisis v8.8.1] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
+        print(f"  [Analisis v9.0] Gagal menganalisis {symbol}: {type(e).__name__} - {e}")
         return {'type': 'status', 'status': 'Analysis_Failed', 'symbol': symbol}
     finally:
         if exchange:
@@ -144,13 +166,11 @@ async def analyze_spot_scalp_asset(symbol):
 
 # --- 4. FUNGSI ORKESTRASI (ORCHESTRATION) ---
 async def execute_scalp_fleet_protocol():
-    """Loop utama untuk analisis spot. Sekarang dipanggil sebagai fallback."""
-    print("💡 Memulai Protokol Armada Scalp v8.8.1 (Mode Industrial)...")
+    print("💡 Memulai Protokol Armada Spot v9.0 (Mode Elite)...")
     scan_list = await get_scan_list()
-    print(f"  [Armada Scalp] {len(scan_list)} target teridentifikasi untuk dianalisis.")
+    print(f"  [Armada Spot] {len(scan_list)} target elite akan dianalisis.")
 
-    trade_signals = []
-    market_statuses = {"Uptrend": [], "Ranging": [], "Downtrend": [], "Insufficient_Data": [], "Analysis_Failed": []}
+    trade_signals, market_statuses = [], {"Uptrend": [], "Ranging": [], "Downtrend": [], "Insufficient_Data": [], "Analysis_Failed": []}
     
     for symbol in scan_list.keys():
         print(f"  > Menganalisis {symbol}...")
@@ -167,47 +187,40 @@ async def execute_scalp_fleet_protocol():
             traceback.print_exc()
 
     if trade_signals:
-        print(f"  [Armada Scalp] {len(trade_signals)} sinyal kandidat ditemukan. Memilih yang terbaik...")
+        print(f"  [Armada Spot] {len(trade_signals)} sinyal kandidat ditemukan. Memilih yang terbaik...")
         sorted_signals = sorted(trade_signals, key=lambda x: x['confidence'], reverse=True)
         for signal in sorted_signals[:3]:
             await send_cornix_signal(signal)
     else:
-        print("  [Armada Scalp] Tidak ada sinyal trading ditemukan. Menyusun Laporan Intelijen...")
+        print("  [Armada Spot] Tidak ada sinyal trading ditemukan. Menyusun Laporan Intelijen...")
         await send_intelligence_report(market_statuses)
             
-    print("✅ Protokol Armada Scalp Selesai.")
+    print("✅ Protokol Armada Spot Selesai.")
 
 async def execute_futures_scan_protocol():
-    """Placeholder untuk logika futures. Penting untuk alur kerja handler."""
     global FUTURES_SIGNAL_FOUND
     print("  [Handler] Memindai pasar Futures...")
-    # Di masa depan, logika untuk mencari sinyal futures akan ada di sini.
-    # Jika sinyal ditemukan, FUTURES_SIGNAL_FOUND akan diatur menjadi True.
     print("  [Handler] Protokol Futures belum menemukan sinyal. Melanjutkan ke Spot.")
-    FUTURES_SIGNAL_FOUND = False # Setel ke False agar logika scalp dapat berjalan
+    FUTURES_SIGNAL_FOUND = False
 
 # --- 5. TITIK MASUK UTAMA (MAIN ENTRY POINT) ---
 def handler(event, context):
-    """Pintu masuk utama dengan alur kerja futures -> spot yang dipulihkan."""
     global IS_RUNNING
     if IS_RUNNING:
         print("!! Eksekusi sebelumnya masih berjalan. Melewati siklus ini.")
         return {'statusCode': 429, 'body': json.dumps('Execution already in progress.')}
     
     IS_RUNNING = True
-    
     try:
-        version = "8.8.1"
+        version = "9.0"
         print(f"GUPF v({version}) berjalan dalam mode: {GUPF_OPERATING_MODE}")
 
         if GUPF_OPERATING_MODE == "SCALP_ONLY":
             asyncio.run(execute_scalp_fleet_protocol())
-        else: # Mode default (Futures -> Spot)
+        else:
             global FUTURES_SIGNAL_FOUND
-            FUTURES_SIGNAL_FOUND = False # Reset flag di awal
-            
+            FUTURES_SIGNAL_FOUND = False
             asyncio.run(execute_futures_scan_protocol())
-            
             if not FUTURES_SIGNAL_FOUND:
                 print("  [Handler] Sinyal futures tidak ditemukan. Beralih ke Protokol Armada Spot.")
                 asyncio.run(execute_scalp_fleet_protocol())
